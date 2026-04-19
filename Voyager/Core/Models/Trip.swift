@@ -77,14 +77,14 @@ final class Trip {
 
 // MARK: - Itinerary
 
-struct ItineraryDay: Codable, Identifiable {
+struct ItineraryDay: Codable, Identifiable, Hashable {
     var id: String = UUID().uuidString
     var dayNumber: Int
     var date: Date
     var activities: [ItineraryActivity]
 }
 
-struct ItineraryActivity: Codable, Identifiable {
+struct ItineraryActivity: Codable, Identifiable, Hashable {
     var id: String = UUID().uuidString
     var title: String
     var description: String

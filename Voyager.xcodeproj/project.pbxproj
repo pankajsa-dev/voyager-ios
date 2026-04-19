@@ -6,6 +6,10 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXBuildFile section */
+		1588BB2E2F8BFA1400D8A34C /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 1588BB2D2F8BFA1400D8A34C /* Supabase */; };
+/* End PBXBuildFile section */
+
 /* Begin PBXContainerItemProxy section */
 		1588BACC2F8BAC2400D8A34C /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -52,6 +56,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				1588BB2E2F8BFA1400D8A34C /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -78,6 +83,7 @@
 				1588BABE2F8BAC2200D8A34C /* Voyager */,
 				1588BACE2F8BAC2400D8A34C /* VoyagerTests */,
 				1588BAD82F8BAC2400D8A34C /* VoyagerUITests */,
+				1588BB2C2F8BF8DE00D8A34C /* Frameworks */,
 				1588BABD2F8BAC2200D8A34C /* Products */,
 			);
 			sourceTree = "<group>";
@@ -90,6 +96,13 @@
 				1588BAD52F8BAC2400D8A34C /* VoyagerUITests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		1588BB2C2F8BF8DE00D8A34C /* Frameworks */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			name = Frameworks;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -112,6 +125,7 @@
 			);
 			name = Voyager;
 			packageProductDependencies = (
+				1588BB2D2F8BFA1400D8A34C /* Supabase */,
 			);
 			productName = Voyager;
 			productReference = 1588BABC2F8BAC2200D8A34C /* Voyager.app */;
@@ -584,6 +598,14 @@
 			};
 		};
 /* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		1588BB2D2F8BFA1400D8A34C /* Supabase */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 1588BB1F2F8BD80600D8A34C /* XCRemoteSwiftPackageReference "supabase-swift" */;
+			productName = Supabase;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1588BAB42F8BAC2200D8A34C /* Project object */;
 }

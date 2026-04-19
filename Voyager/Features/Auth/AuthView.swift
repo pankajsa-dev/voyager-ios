@@ -314,12 +314,17 @@ struct ErrorBanner: View {
 
 struct AppleSignInButton: View {
     @Environment(AuthViewModel.self) private var authVM
+    // Nonce is generated per-request and held until the completion fires
+    @State private var currentNonce: String?
 
     var body: some View {
         SignInWithAppleButton(.continue) { request in
+            let nonce = randomNonceString()
+            currentNonce = nonce
             request.requestedScopes = [.fullName, .email]
+            request.nonce = sha256Nonce(nonce)   // Apple receives hashed nonce
         } onCompletion: { result in
-            authVM.handleAppleSignIn(result)
+            authVM.handleAppleSignIn(result, nonce: currentNonce)  // Supabase receives raw nonce
         }
         .signInWithAppleButtonStyle(.black)
         .frame(height: 52)

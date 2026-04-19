@@ -1,168 +1,199 @@
 import SwiftUI
+import PhotosUI
+
+// MARK: - ProfileView
 
 struct ProfileView: View {
+    @Environment(AuthViewModel.self) private var authVM
+    @State private var tripService     = TripService()
     @State private var showEditProfile = false
+    @State private var showSignOutConfirm = false
 
-    // Placeholder values — will be driven by a ViewModel
-    let name = "Pankaj Sachdeva"
-    let email = "pankaj@voyager.app"
-    let homeCity = "Munich, Germany"
-    let tripsCompleted = 0
-    let countriesVisited = 0
+    // Avatar photo
+    @State private var avatarItem: PhotosPickerItem?
+    @State private var avatarImage: Image?
+
+    private var displayName: String { authVM.currentUser?.name ?? "Traveller" }
+    private var email: String       { authVM.currentUser?.email ?? "" }
+
+    private var initials: String {
+        displayName.split(separator: " ").prefix(2)
+            .compactMap { $0.first?.uppercased() }.joined()
+    }
+
+    private var tripsCount: Int {
+        tripService.trips.filter { $0.status != TripStatus.cancelled.rawValue }.count
+    }
+
+    private var countriesCount: Int {
+        Set(tripService.trips.compactMap {
+            $0.destinationName.isEmpty ? nil : $0.destinationName
+        }).count
+    }
 
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: AppSpacing.xl) {
-                    // Hero header
-                    ProfileHeaderView(
-                        name: name,
-                        homeCity: homeCity,
-                        tripsCompleted: tripsCompleted,
-                        countriesVisited: countriesVisited
-                    )
+                VStack(spacing: AppSpacing.lg) {
 
-                    // Stats row
-                    StatsRowView(
-                        tripsCompleted: tripsCompleted,
-                        countriesVisited: countriesVisited
-                    )
-                    .padding(.horizontal, AppSpacing.md)
+                    // ── Hero header ──────────────────────────────────
+                    heroHeader
 
-                    // Settings sections
-                    VStack(spacing: AppSpacing.sm) {
-                        SettingsSectionView(title: "Account", items: [
-                            SettingsItem(icon: "person.circle", title: "Edit Profile"),
-                            SettingsItem(icon: "bell", title: "Notifications"),
-                            SettingsItem(icon: "lock.shield", title: "Privacy & Security"),
+                    // ── Stats ────────────────────────────────────────
+                    statsRow
+                        .padding(.horizontal, AppSpacing.md)
+
+                    // ── Settings sections ────────────────────────────
+                    VStack(spacing: AppSpacing.md) {
+                        SettingsSection(title: "Account", items: [
+                            SettingsRow(icon: "person.circle",    label: "Edit Profile",       tint: Color(hex: "#2A9D8F")) { showEditProfile = true },
+                            SettingsRow(icon: "envelope",          label: email,                tint: Color(hex: "#2A9D8F"), isDetail: true) {},
+                            SettingsRow(icon: "bell",             label: "Notifications",      tint: Color(hex: "#2A9D8F")) {},
+                            SettingsRow(icon: "lock.shield",      label: "Privacy & Security", tint: Color(hex: "#2A9D8F")) {},
                         ])
-                        SettingsSectionView(title: "Preferences", items: [
-                            SettingsItem(icon: "globe", title: "Language"),
-                            SettingsItem(icon: "dollarsign.circle", title: "Currency"),
-                            SettingsItem(icon: "moon", title: "Appearance"),
+
+                        SettingsSection(title: "Preferences", items: [
+                            SettingsRow(icon: "globe",            label: "Language",    tint: Color(hex: "#1A6B6A")) {},
+                            SettingsRow(icon: "dollarsign.circle",label: "Currency",    tint: Color(hex: "#1A6B6A")) {},
+                            SettingsRow(icon: "moon",             label: "Appearance",  tint: Color(hex: "#1A6B6A")) {},
                         ])
-                        SettingsSectionView(title: "Support", items: [
-                            SettingsItem(icon: "questionmark.circle", title: "Help & FAQ"),
-                            SettingsItem(icon: "star", title: "Rate Voyager"),
-                            SettingsItem(icon: "info.circle", title: "About"),
+
+                        SettingsSection(title: "Support", items: [
+                            SettingsRow(icon: "questionmark.circle", label: "Help & FAQ",    tint: .gray) {},
+                            SettingsRow(icon: "star",               label: "Rate Voyager",   tint: Color(hex: "#E9A84C")) {},
+                            SettingsRow(icon: "info.circle",        label: "About",          tint: .gray) {},
                         ])
                     }
                     .padding(.horizontal, AppSpacing.md)
 
-                    // Sign out
-                    Button(role: .destructive) {
-                        // Sign out
-                    } label: {
+                    // ── Sign out ─────────────────────────────────────
+                    Button { showSignOutConfirm = true } label: {
                         Text("Sign Out")
-                            .font(AppFont.body)
-                            .fontWeight(.semibold)
+                            .font(AppFont.body).fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 14)
-                            .background(Color(hex: "#E05D5D").opacity(0.1))
-                            .foregroundStyle(Color(hex: "#E05D5D"))
+                            .background(Color.red.opacity(0.08))
+                            .foregroundStyle(.red)
                             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
                     }
                     .padding(.horizontal, AppSpacing.md)
 
-                    Spacer(minLength: AppSpacing.xl)
+                    Text("Voyager v1.0")
+                        .font(AppFont.caption)
+                        .foregroundStyle(.tertiary)
+
+                    Spacer(minLength: AppSpacing.xxl)
                 }
                 .padding(.top, AppSpacing.md)
             }
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Profile")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button { showEditProfile = true } label: {
-                        Image(systemName: "square.and.pencil")
+            .task { await tripService.fetchAll() }
+            .sheet(isPresented: $showEditProfile) {
+                EditProfileView(name: displayName, email: email)
+                    .environment(authVM)
+            }
+            .confirmationDialog("Sign out of Voyager?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
+                Button("Sign Out", role: .destructive) { authVM.signOut() }
+                Button("Cancel", role: .cancel) {}
+            }
+        }
+    }
+
+    // MARK: - Hero header
+
+    private var heroHeader: some View {
+        VStack(spacing: AppSpacing.md) {
+            // Avatar — tappable for photo picker
+            PhotosPicker(selection: $avatarItem, matching: .images) {
+                ZStack(alignment: .bottomTrailing) {
+                    Group {
+                        if let avatarImage {
+                            avatarImage
+                                .resizable().scaledToFill()
+                        } else {
+                            LinearGradient(
+                                colors: [Color(hex: "#1A6B6A"), Color(hex: "#2A9D8F")],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            )
+                            .overlay(
+                                Text(initials)
+                                    .font(.system(size: 36, weight: .bold))
+                                    .foregroundStyle(.white)
+                            )
+                        }
+                    }
+                    .frame(width: 96, height: 96)
+                    .clipShape(Circle())
+
+                    // Camera badge
+                    Circle()
+                        .fill(Color(hex: "#E9A84C"))
+                        .frame(width: 28, height: 28)
+                        .overlay(
+                            Image(systemName: "camera.fill")
+                                .font(.system(size: 12))
+                                .foregroundStyle(.white)
+                        )
+                        .offset(x: 2, y: 2)
+                }
+            }
+            .onChange(of: avatarItem) { _, item in
+                Task {
+                    if let data = try? await item?.loadTransferable(type: Data.self),
+                       let ui   = UIImage(data: data) {
+                        avatarImage = Image(uiImage: ui)
                     }
                 }
             }
-            .sheet(isPresented: $showEditProfile) {
-                Text("Edit Profile — coming soon")
-                    .presentationDetents([.medium])
-            }
-        }
-    }
-}
 
-// MARK: - Profile header
-
-private struct ProfileHeaderView: View {
-    let name: String
-    let homeCity: String
-    let tripsCompleted: Int
-    let countriesVisited: Int
-
-    var initials: String {
-        name.split(separator: " ").prefix(2).compactMap { $0.first?.uppercased() }.joined()
-    }
-
-    var body: some View {
-        VStack(spacing: AppSpacing.md) {
-            // Avatar
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "#1A6B6A"), Color(hex: "#2A9D8F")],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 90, height: 90)
-                Text(initials)
-                    .font(.system(size: 34, weight: .bold))
-                    .foregroundStyle(.white)
-            }
-
+            // Name + email
             VStack(spacing: 4) {
-                Text(name)
-                    .font(AppFont.h2)
-                    .fontWeight(.bold)
-                HStack(spacing: 4) {
-                    Image(systemName: "location.fill")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                    Text(homeCity)
-                        .font(AppFont.body)
-                        .foregroundStyle(.secondary)
-                }
+                Text(displayName)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                Text(email)
+                    .font(AppFont.bodySmall)
+                    .foregroundStyle(.secondary)
             }
         }
+        .padding(.vertical, AppSpacing.md)
     }
-}
 
-// MARK: - Stats row
+    // MARK: - Stats row
 
-private struct StatsRowView: View {
-    let tripsCompleted: Int
-    let countriesVisited: Int
-
-    var body: some View {
-        HStack {
-            StatItem(value: "\(tripsCompleted)", label: "Trips")
-            Divider().frame(height: 40)
-            StatItem(value: "\(countriesVisited)", label: "Countries")
-            Divider().frame(height: 40)
-            StatItem(value: "0", label: "Badges")
+    private var statsRow: some View {
+        HStack(spacing: 0) {
+            ProfileStat(value: "\(tripsCount)",    label: "Trips",     icon: "airplane")
+            dividerLine
+            ProfileStat(value: "\(countriesCount)", label: "Places",    icon: "mappin.circle")
+            dividerLine
+            ProfileStat(value: "0",                label: "Badges",    icon: "star.circle")
         }
         .padding(.vertical, AppSpacing.md)
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .cardShadow()
     }
+
+    private var dividerLine: some View {
+        Rectangle()
+            .fill(Color(UIColor.separator))
+            .frame(width: 0.5, height: 40)
+    }
 }
 
-private struct StatItem: View {
+// MARK: - Profile stat
+
+private struct ProfileStat: View {
     let value: String
     let label: String
+    let icon:  String
 
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
-                .font(AppFont.h2)
-                .fontWeight(.bold)
+                .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(Color(hex: "#1A6B6A"))
             Text(label)
                 .font(AppFont.caption)
@@ -172,43 +203,55 @@ private struct StatItem: View {
     }
 }
 
-// MARK: - Settings section
+// MARK: - Settings section / row
 
-private struct SettingsItem: Identifiable {
-    let id = UUID()
-    let icon: String
-    let title: String
+private struct SettingsRow: Identifiable {
+    let id    = UUID()
+    let icon:  String
+    let label: String
+    let tint:  Color
+    var isDetail: Bool = false
+    let action: () -> Void
 }
 
-private struct SettingsSectionView: View {
+private struct SettingsSection: View {
     let title: String
-    let items: [SettingsItem]
+    let items: [SettingsRow]
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: AppSpacing.xs) {
             Text(title)
                 .font(AppFont.label)
                 .foregroundStyle(.secondary)
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.bottom, AppSpacing.xs)
+                .padding(.horizontal, AppSpacing.sm)
 
             VStack(spacing: 0) {
-                ForEach(items) { item in
-                    HStack(spacing: AppSpacing.md) {
-                        Image(systemName: item.icon)
-                            .frame(width: 24)
-                            .foregroundStyle(Color(hex: "#2A9D8F"))
-                        Text(item.title)
-                            .font(AppFont.body)
-                        Spacer()
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
+                ForEach(items) { row in
+                    Button(action: row.action) {
+                        HStack(spacing: AppSpacing.md) {
+                            Image(systemName: row.icon)
+                                .foregroundStyle(row.tint)
+                                .frame(width: 24)
+                            Text(row.label)
+                                .font(AppFont.body)
+                                .foregroundStyle(row.isDetail ? .secondary : .primary)
+                                .lineLimit(1)
+                            Spacer()
+                            if !row.isDetail {
+                                Image(systemName: "chevron.right")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundStyle(.tertiary)
+                            }
+                        }
+                        .padding(.horizontal, AppSpacing.md)
+                        .padding(.vertical, 14)
+                        .contentShape(Rectangle())
                     }
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, 14)
-                    if item.id != items.last?.id {
-                        Divider().padding(.leading, AppSpacing.md + 24 + AppSpacing.md)
+                    .buttonStyle(.plain)
+
+                    if row.id != items.last?.id {
+                        Divider()
+                            .padding(.leading, AppSpacing.md + 24 + AppSpacing.md)
                     }
                 }
             }
@@ -218,6 +261,73 @@ private struct SettingsSectionView: View {
     }
 }
 
+// MARK: - Edit Profile sheet
+
+private struct EditProfileView: View {
+    @Environment(AuthViewModel.self) private var authVM
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var name:  String
+    @State private var email: String
+    @State private var isSaving = false
+
+    init(name: String, email: String) {
+        _name  = State(initialValue: name)
+        _email = State(initialValue: email)
+    }
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Display Name") {
+                    TextField("Full name", text: $name)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.words)
+                }
+                Section("Email") {
+                    TextField("Email address", text: $email)
+                        .keyboardType(.emailAddress)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                        .foregroundStyle(.secondary)
+                        .disabled(true)   // email change requires re-auth; disable for now
+                }
+                Section {
+                    Text("Email change requires re-authentication and is not supported in this version.")
+                        .font(AppFont.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .navigationTitle("Edit Profile")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") { save() }
+                        .fontWeight(.semibold)
+                        .disabled(isSaving || name.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+            }
+        }
+    }
+
+    private func save() {
+        let trimmed = name.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return }
+        isSaving = true
+        // Update in-memory user immediately; full Supabase profile update
+        // goes through ProfileService (to be added when backend profile table is ready)
+        if var user = authVM.currentUser {
+            user.name = trimmed
+            authVM.currentUser = user
+        }
+        dismiss()
+    }
+}
+
 #Preview {
     ProfileView()
+        .environment(AuthViewModel())
 }

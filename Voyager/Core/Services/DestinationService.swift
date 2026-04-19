@@ -3,7 +3,7 @@ import Supabase
 
 // MARK: - DTO (matches Supabase column names)
 
-struct DestinationDTO: Codable, Identifiable {
+struct DestinationDTO: Codable, Identifiable, Hashable {
     let id: String
     let name: String
     let country: String
@@ -51,13 +51,16 @@ final class DestinationService {
     func fetchAll(category: String? = nil) async {
         await MainActor.run { isLoading = true; errorMessage = nil }
         do {
-            var query = db.from(Table.destinations)
-                .select()
-                .order("rating", ascending: false)
+            // Apply all eq filters first (PostgrestFilterBuilder),
+            // then order (PostgrestTransformBuilder) — order must come last.
+            var filterQuery = db.from(Table.destinations).select()
             if let cat = category {
-                query = query.eq("category", value: cat)
+                filterQuery = filterQuery.eq("category", value: cat)
             }
-            let results: [DestinationDTO] = try await query.execute().value
+            let results: [DestinationDTO] = try await filterQuery
+                .order("rating", ascending: false)
+                .execute()
+                .value
             await MainActor.run {
                 destinations = results
                 isLoading = false

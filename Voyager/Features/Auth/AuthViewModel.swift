@@ -1,6 +1,7 @@
 import SwiftUI
 import Supabase
 import AuthenticationServices
+import CryptoKit
 
 // MARK: - App user (lightweight, in-memory)
 
@@ -60,11 +61,10 @@ final class AuthViewModel {
                 password: password,
                 data: ["full_name": AnyJSON.string(name)]
             )
-            if let user = response.user {
-                await MainActor.run {
-                    isLoading = false
-                    setUser(id: user.id.uuidString, name: name, email: email)
-                }
+            let user = response.user
+            await MainActor.run {
+                isLoading = false
+                setUser(id: user.id.uuidString, name: name, email: email)
             }
         } catch {
             await MainActor.run {
@@ -82,7 +82,10 @@ final class AuthViewModel {
         }
         await MainActor.run { isLoading = true; errorMessage = nil }
         do {
-            let session = try await supabase.auth.signIn(email: email, password: password)
+            let session = try await supabase.auth.signIn(
+                email: email.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password
+            )
             let name = session.user.userMetadata["full_name"]?.stringValue
                 ?? nameFromEmail(email)
             await MainActor.run {
@@ -90,6 +93,7 @@ final class AuthViewModel {
                 setUser(id: session.user.id.uuidString, name: name, email: email)
             }
         } catch {
+            print("🔴 Login error: \(error)")
             await MainActor.run {
                 isLoading = false
                 errorMessage = friendlyError(error)
@@ -98,12 +102,13 @@ final class AuthViewModel {
     }
 
     // ── Sign in with Apple ────────────────────────────────────────────────
-    func handleAppleSignIn(_ result: Result<ASAuthorization, Error>) {
+    func handleAppleSignIn(_ result: Result<ASAuthorization, Error>, nonce: String?) {
         switch result {
         case .success(let auth):
             guard let credential = auth.credential as? ASAuthorizationAppleIDCredential,
                   let identityToken = credential.identityToken,
-                  let tokenString = String(data: identityToken, encoding: .utf8)
+                  let tokenString = String(data: identityToken, encoding: .utf8),
+                  let rawNonce = nonce
             else { errorMessage = "Apple Sign-In failed."; return }
 
             Task {
@@ -112,7 +117,7 @@ final class AuthViewModel {
                     let name = [credential.fullName?.givenName, credential.fullName?.familyName]
                         .compactMap { $0 }.joined(separator: " ")
                     let session = try await supabase.auth.signInWithIdToken(
-                        credentials: .init(provider: .apple, idToken: tokenString)
+                        credentials: .init(provider: .apple, idToken: tokenString, nonce: rawNonce)
                     )
                     await MainActor.run {
                         isLoading = false
@@ -189,9 +194,37 @@ final class AuthViewModel {
 
     private func friendlyError(_ error: Error) -> String {
         let msg = error.localizedDescription.lowercased()
-        if msg.contains("invalid login")   { return "Incorrect email or password." }
-        if msg.contains("already registered") { return "An account with this email already exists." }
-        if msg.contains("network")         { return "No internet connection. Please try again." }
-        return "Something went wrong. Please try again."
+        if msg.contains("invalid login") || msg.contains("invalid credentials") {
+            return "Incorrect email or password."
+        }
+        if msg.contains("email not confirmed") || msg.contains("not confirmed") {
+            return "Please confirm your email before logging in. Check your inbox."
+        }
+        if msg.contains("already registered") || msg.contains("user already registered") {
+            return "An account with this email already exists."
+        }
+        if msg.contains("network") || msg.contains("offline") || msg.contains("connection") {
+            return "No internet connection. Please try again."
+        }
+        if msg.contains("rate limit") || msg.contains("too many") {
+            return "Too many attempts. Please wait a moment and try again."
+        }
+        // Surface the real message in dev so issues are visible
+        return error.localizedDescription
     }
+}
+
+// MARK: - Nonce helpers (Apple Sign-In requirement)
+
+func randomNonceString(length: Int = 32) -> String {
+    var randomBytes = [UInt8](repeating: 0, count: length)
+    _ = SecRandomCopyBytes(kSecRandomDefault, randomBytes.count, &randomBytes)
+    let charset = Array("0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._")
+    return String(randomBytes.map { charset[Int($0) % charset.count] })
+}
+
+func sha256Nonce(_ input: String) -> String {
+    SHA256.hash(data: Data(input.utf8))
+        .map { String(format: "%02x", $0) }
+        .joined()
 }

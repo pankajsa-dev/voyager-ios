@@ -75,7 +75,7 @@ final class ProfileService {
         let userId = try await auth.session.user.id.uuidString
         let path   = "avatars/\(userId)/avatar.jpg"
         try await storage.upload(
-            path,
+            path: path,
             file: imageData,
             options: FileOptions(contentType: "image/jpeg", upsert: true)
         )

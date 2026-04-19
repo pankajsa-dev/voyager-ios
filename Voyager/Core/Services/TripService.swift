@@ -3,7 +3,7 @@ import Supabase
 
 // MARK: - DTO
 
-struct TripDTO: Codable, Identifiable {
+struct TripDTO: Codable, Identifiable, Hashable {
     let id: String
     var title: String
     var destinationId: String?
@@ -97,12 +97,16 @@ final class TripService {
 
     // ── Update itinerary days ─────────────────────────────────────────────
     func updateItinerary(tripId: String, days: [ItineraryDay]) async throws {
-        let encoder = JSONEncoder()
-        let data = try encoder.encode(days)
-        let json = try JSONSerialization.jsonObject(with: data)
+        let data = try JSONEncoder().encode(days)
+        // Decode into AnyJSON so the update dict stays [String: AnyJSON]
+        let itineraryJSON = try JSONDecoder().decode(AnyJSON.self, from: data)
+        let payload: [String: AnyJSON] = [
+            "itinerary_days": itineraryJSON,
+            "updated_at":     .string(ISO8601DateFormatter().string(from: .now)),
+        ]
         try await db
             .from(Table.trips)
-            .update(["itinerary_days": json, "updated_at": ISO8601DateFormatter().string(from: .now)])
+            .update(payload)
             .eq("id", value: tripId)
             .execute()
         if let idx = trips.firstIndex(where: { $0.id == tripId }) {
@@ -112,9 +116,10 @@ final class TripService {
 
     // ── Update status ─────────────────────────────────────────────────────
     func updateStatus(tripId: String, status: TripStatus) async throws {
+        let payload: [String: AnyJSON] = ["status": .string(status.rawValue)]
         try await db
             .from(Table.trips)
-            .update(["status": status.rawValue])
+            .update(payload)
             .eq("id", value: tripId)
             .execute()
         if let idx = trips.firstIndex(where: { $0.id == tripId }) {

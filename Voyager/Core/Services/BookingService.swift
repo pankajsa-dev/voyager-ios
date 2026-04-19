@@ -49,12 +49,16 @@ final class BookingService {
         guard let userId = try? await auth.session.user.id.uuidString else { return }
         await MainActor.run { isLoading = true; errorMessage = nil }
         do {
-            var query = db.from(Table.bookings)
+            // Build filter phase first (eq), then add order so we stay on
+            // PostgrestFilterBuilder until all filters are applied.
+            var filterQuery = db.from(Table.bookings)
                 .select()
                 .eq("user_id", value: userId)
+            if let tid = tripId { filterQuery = filterQuery.eq("trip_id", value: tid) }
+            let results: [BookingDTO] = try await filterQuery
                 .order("start_date", ascending: true)
-            if let tid = tripId { query = query.eq("trip_id", value: tid) }
-            let results: [BookingDTO] = try await query.execute().value
+                .execute()
+                .value
             await MainActor.run { bookings = results; isLoading = false }
         } catch {
             await MainActor.run { errorMessage = "Could not load bookings."; isLoading = false }
