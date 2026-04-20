@@ -26,7 +26,12 @@ struct DestinationDetailView: View {
 
                 // ── Hero ──────────────────────────────────────────────────
                 ZStack(alignment: .bottomLeading) {
-                    DestinationHero(imageURLs: destination.imageUrls, height: 300)
+                    DestinationHero(
+                        imageURLs: destination.imageUrls,
+                        height: 300,
+                        destinationName: destination.name,
+                        country: destination.country
+                    )
 
                     // Gradient scrim
                     LinearGradient(

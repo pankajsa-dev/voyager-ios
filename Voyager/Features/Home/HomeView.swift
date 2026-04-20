@@ -47,7 +47,9 @@ final class HomeViewModel {
 
 struct HomeView: View {
     @Environment(AuthViewModel.self) private var authVM
-    @State private var vm = HomeViewModel()
+    @Binding var selectedTab: AppTab
+    @State private var vm              = HomeViewModel()
+    @State private var profileService  = ProfileService()
     @State private var selectedDestination: DestinationDTO?
     private let destinationService = DestinationService()
 
@@ -59,13 +61,12 @@ struct HomeView: View {
                     // ── Greeting header ──────────────────────────────
                     headerSection
 
-                    // ── Stats row ────────────────────────────────────
-                    statsRow
+                    // ── Upcoming trip HERO BANNER ─────────────────────
+                    upcomingTripBanner
                         .padding(.horizontal, AppSpacing.md)
 
-                    // ── Upcoming trip ────────────────────────────────
-                    SectionHeader(title: "Upcoming Trip", actionTitle: nil) {}
-                    upcomingTripCard
+                    // ── Stats row ────────────────────────────────────
+                    statsRow
                         .padding(.horizontal, AppSpacing.md)
 
                     // ── Featured destinations ────────────────────────
@@ -93,15 +94,21 @@ struct HomeView: View {
             .navigationDestination(item: $selectedDestination) { dest in
                 DestinationDetailView(destination: dest, service: destinationService)
             }
-            .task { await vm.load() }
-            .refreshable { await vm.load() }
+            .task {
+                await vm.load()
+                await profileService.fetch()
+            }
+            .refreshable {
+                await vm.load()
+                await profileService.fetch()
+            }
         }
     }
 
     // MARK: Header
 
     private var headerSection: some View {
-        HStack(alignment: .top) {
+        HStack(alignment: .center) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(greeting)
                     .font(AppFont.bodySmall)
@@ -110,23 +117,61 @@ struct HomeView: View {
                     .font(.system(size: 26, weight: .bold, design: .rounded))
             }
             Spacer()
-            // Avatar initial
-            ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [Color(hex: "#1A6B6A"), Color(hex: "#2A9D8F")],
-                            startPoint: .topLeading, endPoint: .bottomTrailing
+            // Tappable profile avatar — tapping switches to Profile tab
+            Button { selectedTab = .profile } label: {
+                ZStack {
+                    Circle()
+                        .fill(
+                            LinearGradient(
+                                colors: [Color(hex: "#1A6B6A"), Color(hex: "#2A9D8F")],
+                                startPoint: .topLeading, endPoint: .bottomTrailing
+                            )
                         )
-                    )
-                    .frame(width: 42, height: 42)
-                Text(initial)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundStyle(.white)
+                        .frame(width: 46, height: 46)
+
+                    if let urlStr = profileService.profile?.avatarUrl,
+                       let url = URL(string: urlStr) {
+                        AsyncImage(url: url) { phase in
+                            if case .success(let img) = phase {
+                                img.resizable().scaledToFill()
+                                    .frame(width: 46, height: 46)
+                                    .clipShape(Circle())
+                            } else {
+                                Text(initial)
+                                    .font(.system(size: 18, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                        }
+                    } else {
+                        Text(initial)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+                .frame(width: 46, height: 46)
+                .overlay(Circle().stroke(Color(hex: "#2A9D8F").opacity(0.5), lineWidth: 2))
+                .shadow(color: Color(hex: "#1A6B6A").opacity(0.3), radius: 4, x: 0, y: 2)
             }
+            .buttonStyle(.plain)
         }
         .padding(.horizontal, AppSpacing.md)
         .padding(.top, AppSpacing.sm)
+    }
+
+    // MARK: Upcoming trip banner (hero)
+
+    @ViewBuilder
+    private var upcomingTripBanner: some View {
+        if vm.isLoading {
+            RoundedRectangle(cornerRadius: AppRadius.xl)
+                .fill(Color(UIColor.secondarySystemGroupedBackground))
+                .frame(height: 210)
+                .shimmer()
+        } else if let trip = vm.upcomingTrip {
+            UpcomingTripBanner(trip: trip)
+        } else {
+            EmptyTripBanner()
+        }
     }
 
     // MARK: Stats
@@ -136,22 +181,6 @@ struct HomeView: View {
             StatPill(value: "\(vm.tripCount)", label: "Trips", icon: "airplane")
             StatPill(value: "\(vm.countriesCount)", label: "Places", icon: "mappin.circle")
             StatPill(value: "0", label: "Bookings", icon: "ticket")
-        }
-    }
-
-    // MARK: Upcoming trip card
-
-    @ViewBuilder
-    private var upcomingTripCard: some View {
-        if vm.isLoading {
-            RoundedRectangle(cornerRadius: AppRadius.xl)
-                .fill(Color(UIColor.secondarySystemGroupedBackground))
-                .frame(height: 160)
-                .shimmer()
-        } else if let trip = vm.upcomingTrip {
-            ActiveTripCard(trip: trip)
-        } else {
-            EmptyTripCard()
         }
     }
 
@@ -196,9 +225,9 @@ struct HomeView: View {
     }
 }
 
-// MARK: - Active trip card
+// MARK: - Upcoming trip HERO banner
 
-private struct ActiveTripCard: View {
+private struct UpcomingTripBanner: View {
     let trip: TripDTO
 
     private var daysUntil: Int {
@@ -210,7 +239,7 @@ private struct ActiveTripCard: View {
     private var formattedDate: String {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         guard let d = fmt.date(from: trip.startDate) else { return trip.startDate }
-        let out = DateFormatter(); out.dateFormat = "MMM d"
+        let out    = DateFormatter(); out.dateFormat    = "MMM d"
         let outEnd = DateFormatter(); outEnd.dateFormat = "MMM d, yyyy"
         if let e = fmt.date(from: trip.endDate) {
             return "\(out.string(from: d)) – \(outEnd.string(from: e))"
@@ -218,88 +247,172 @@ private struct ActiveTripCard: View {
         return out.string(from: d)
     }
 
+    private var coverURL: URL? {
+        trip.coverImageUrl.flatMap { URL(string: $0) }
+    }
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Background gradient
-            RoundedRectangle(cornerRadius: AppRadius.xl)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: "#1A6B6A"), Color(hex: "#0D4A49")],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-                .frame(height: 170)
+            // ── Background: real cover image or gradient ──────────────
+            Group {
+                if let url = coverURL {
+                    AsyncImage(url: url) { phase in
+                        switch phase {
+                        case .success(let img):
+                            img.resizable().scaledToFill()
+                        default:
+                            gradientBackground
+                        }
+                    }
+                } else {
+                    gradientBackground
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 220)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
 
-            // Decorative circle
+            // ── Scrim so text is readable over any image ──────────────
+            LinearGradient(
+                colors: [.clear, .black.opacity(0.25), .black.opacity(0.72)],
+                startPoint: .top, endPoint: .bottom
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
+
+            // Subtle decorative circle (teal glow)
             Circle()
-                .fill(.white.opacity(0.06))
-                .frame(width: 160, height: 160)
-                .offset(x: 180, y: -20)
+                .fill(Color(hex: "#2A9D8F").opacity(0.18))
+                .frame(width: 180)
+                .offset(x: 200, y: -60)
+                .blur(radius: 20)
 
-            // Content
+            // ── Content ───────────────────────────────────────────────
             VStack(alignment: .leading, spacing: 6) {
+                // Tag
                 Label("UPCOMING TRIP", systemImage: "airplane.departure")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+                    .font(.system(size: 10, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.85))
                     .labelStyle(.titleAndIcon)
 
+                // Trip title (if different from destination) + destination
+                if !trip.title.isEmpty && trip.title != trip.destinationName {
+                    Text(trip.title)
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(.white.opacity(0.75))
+                        .lineLimit(1)
+                }
+
                 Text(trip.destinationName)
-                    .font(.system(size: 22, weight: .bold, design: .rounded))
+                    .font(.system(size: 26, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
                     .lineLimit(1)
 
                 Text(formattedDate)
                     .font(AppFont.bodySmall)
-                    .foregroundStyle(.white.opacity(0.8))
+                    .foregroundStyle(.white.opacity(0.85))
 
-                Spacer(minLength: 8)
+                Spacer(minLength: 10)
 
                 // Countdown badge
-                HStack(spacing: 6) {
-                    if daysUntil == 0 {
-                        Label("Today!", systemImage: "star.fill")
+                HStack(spacing: 8) {
+                    countdownBadge
+                    Spacer()
+                    // "View Details" pill
+                    HStack(spacing: 4) {
+                        Text("View Details")
                             .font(.system(size: 12, weight: .semibold))
-                    } else {
-                        Label("\(daysUntil) days to go", systemImage: "clock")
-                            .font(.system(size: 12, weight: .semibold))
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .bold))
                     }
+                    .foregroundStyle(Color(hex: "#1A6B6A"))
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 6)
+                    .background(.white.opacity(0.92))
+                    .clipShape(Capsule())
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(.white.opacity(0.18))
-                .clipShape(Capsule())
             }
             .padding(AppSpacing.md)
         }
+        .frame(height: 220)
         .cardShadow()
+    }
+
+    @ViewBuilder
+    private var countdownBadge: some View {
+        let (icon, text): (String, String) = {
+            if daysUntil == 0 { return ("star.fill", "Today!") }
+            if daysUntil == 1 { return ("clock.fill", "Tomorrow!") }
+            return ("clock.fill", "\(daysUntil) days to go")
+        }()
+
+        Label(text, systemImage: icon)
+            .font(.system(size: 12, weight: .semibold))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 5)
+            .background(.white.opacity(0.18))
+            .clipShape(Capsule())
+    }
+
+    private var gradientBackground: some View {
+        LinearGradient(
+            colors: [Color(hex: "#1A6B6A"), Color(hex: "#0D4A49")],
+            startPoint: .topLeading, endPoint: .bottomTrailing
+        )
     }
 }
 
-// MARK: - Empty trip card
+// MARK: - Empty trip banner
 
-private struct EmptyTripCard: View {
+private struct EmptyTripBanner: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            RoundedRectangle(cornerRadius: AppRadius.xl)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(hex: "#2A9D8F"), Color(hex: "#1A6B6A")],
-                        startPoint: .topLeading, endPoint: .bottomTrailing
-                    )
-                )
-                .frame(height: 160)
+            LinearGradient(
+                colors: [Color(hex: "#2A9D8F"), Color(hex: "#1A6B6A")],
+                startPoint: .topLeading, endPoint: .bottomTrailing
+            )
+            .frame(height: 180)
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.xl))
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text("NO UPCOMING TRIPS")
-                    .font(.system(size: 10, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.7))
+            // Decorative circles
+            Circle()
+                .fill(.white.opacity(0.06))
+                .frame(width: 160)
+                .offset(x: 210, y: -40)
+
+            Circle()
+                .fill(.white.opacity(0.04))
+                .frame(width: 90)
+                .offset(x: 120, y: 40)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Label("NO UPCOMING TRIPS", systemImage: "map")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.75))
+                    .labelStyle(.titleAndIcon)
+
                 Text("Ready to explore?")
-                    .font(AppFont.h3)
+                    .font(.system(size: 22, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                Text("Plan your next adventure →")
+
+                Text("Plan your next adventure")
                     .font(AppFont.bodySmall)
                     .foregroundStyle(.white.opacity(0.85))
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 4) {
+                    Image(systemName: "plus.circle.fill")
+                    Text("Create a Trip")
+                        .fontWeight(.semibold)
+                }
+                .font(.system(size: 13))
+                .foregroundStyle(Color(hex: "#1A6B6A"))
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(.white.opacity(0.9))
+                .clipShape(Capsule())
             }
             .padding(AppSpacing.md)
         }
@@ -484,6 +597,6 @@ struct SectionHeader: View {
 }
 
 #Preview {
-    HomeView()
+    HomeView(selectedTab: .constant(.home))
         .environment(AuthViewModel())
 }

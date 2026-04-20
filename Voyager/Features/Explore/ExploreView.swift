@@ -152,7 +152,12 @@ struct DestinationCard: View {
             VStack(alignment: .leading, spacing: 0) {
                 // Hero image / gradient placeholder
                 ZStack(alignment: .bottomLeading) {
-                    DestinationHero(imageURLs: destination.imageUrls, height: 140)
+                    DestinationHero(
+                        imageURLs: destination.imageUrls,
+                        height: 140,
+                        destinationName: destination.name,
+                        country: destination.country
+                    )
 
                     // Rating pill
                     HStack(spacing: 3) {
@@ -215,23 +220,41 @@ struct DestinationCard: View {
     }
 }
 
-// MARK: - Destination hero image (gradient fallback)
+// MARK: - Destination hero image (Unsplash fallback)
 
 struct DestinationHero: View {
     let imageURLs: [String]
     let height: CGFloat
+    var destinationName: String = ""
+    var country: String = ""
+
+    @State private var unsplashURL: String?
+
+    private var imageService: DestinationImageService { .shared }
+
+    /// The best URL to show: stored DB url → unsplash fallback → nil (gradient)
+    private var resolvedURL: URL? {
+        if let first = imageURLs.first, !first.isEmpty {
+            return URL(string: first)
+        }
+        if let fallback = unsplashURL ?? imageService.cachedURL(for: destinationName, country: country) {
+            return URL(string: fallback)
+        }
+        return nil
+    }
 
     var body: some View {
         Group {
-            if let urlStr = imageURLs.first, let url = URL(string: urlStr) {
+            if let url = resolvedURL {
                 AsyncImage(url: url) { phase in
                     switch phase {
                     case .success(let img):
                         img.resizable().scaledToFill()
-                    case .failure, .empty:
+                    case .failure:
                         gradientPlaceholder
-                    @unknown default:
-                        gradientPlaceholder
+                    default:
+                        // Show shimmer while loading
+                        gradientPlaceholder.shimmerLight()
                     }
                 }
             } else {
@@ -241,6 +264,19 @@ struct DestinationHero: View {
         .frame(maxWidth: .infinity)
         .frame(height: height)
         .clipped()
+        .task(id: destinationName) {
+            // Only fetch from Unsplash when DB has no image
+            guard imageURLs.first?.isEmpty ?? true, imageURLs.isEmpty else { return }
+            guard !destinationName.isEmpty else { return }
+            // Check cache first (instant)
+            if let cached = imageService.cachedURL(for: destinationName, country: country) {
+                unsplashURL = cached
+                return
+            }
+            // Fetch asynchronously
+            await imageService.fetch(destination: destinationName, country: country)
+            unsplashURL = imageService.cachedURL(for: destinationName, country: country)
+        }
     }
 
     private var gradientPlaceholder: some View {
@@ -250,10 +286,37 @@ struct DestinationHero: View {
             endPoint: .bottomTrailing
         )
         .overlay(
-            Image(systemName: "photo")
+            Image(systemName: "photo.on.rectangle.angled")
                 .font(.title2)
-                .foregroundStyle(.white.opacity(0.4))
+                .foregroundStyle(.white.opacity(0.35))
         )
+    }
+}
+
+// Light shimmer for image loading state
+private extension View {
+    func shimmerLight() -> some View {
+        self.modifier(LightShimmerModifier())
+    }
+}
+
+private struct LightShimmerModifier: ViewModifier {
+    @State private var phase: CGFloat = 0
+    func body(content: Content) -> some View {
+        content
+            .overlay(
+                LinearGradient(
+                    colors: [.clear, .white.opacity(0.2), .clear],
+                    startPoint: .init(x: phase - 0.3, y: 0),
+                    endPoint: .init(x: phase + 0.3, y: 0)
+                )
+                .allowsHitTesting(false)
+            )
+            .onAppear {
+                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
+                    phase = 1.3
+                }
+            }
     }
 }
 

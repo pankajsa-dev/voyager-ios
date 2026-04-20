@@ -1,4 +1,5 @@
 import SwiftUI
+import PhotosUI
 
 struct CreateTripView: View {
     let tripService: TripService
@@ -14,6 +15,10 @@ struct CreateTripView: View {
     @State private var currency        = "USD"
     @State private var isCreating      = false
     @State private var errorMsg: String?
+
+    // Banner image
+    @State private var bannerItem:  PhotosPickerItem?
+    @State private var bannerImage: UIImage?
 
     // Destination search
     @State private var destService     = DestinationService()
@@ -32,6 +37,55 @@ struct CreateTripView: View {
         NavigationStack {
             ScrollView {
                 VStack(spacing: AppSpacing.lg) {
+
+                    // ── Banner image ───────────────────────────────────
+                    PhotosPicker(selection: $bannerItem, matching: .images) {
+                        ZStack(alignment: .bottomTrailing) {
+                            Group {
+                                if let img = bannerImage {
+                                    Image(uiImage: img)
+                                        .resizable().scaledToFill()
+                                } else {
+                                    LinearGradient(
+                                        colors: [Color(hex: "#0D4A49"), Color(hex: "#2A9D8F")],
+                                        startPoint: .topLeading, endPoint: .bottomTrailing
+                                    )
+                                    .overlay(
+                                        VStack(spacing: 8) {
+                                            Image(systemName: "photo.on.rectangle.angled")
+                                                .font(.system(size: 32))
+                                                .foregroundStyle(.white.opacity(0.7))
+                                            Text("Add Banner Photo")
+                                                .font(AppFont.bodySmall).fontWeight(.semibold)
+                                                .foregroundStyle(.white.opacity(0.9))
+                                        }
+                                    )
+                                }
+                            }
+                            .frame(maxWidth: .infinity).frame(height: 160)
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+
+                            // Camera badge
+                            ZStack {
+                                Circle()
+                                    .fill(Color(hex: "#E9A84C"))
+                                    .frame(width: 34, height: 34)
+                                Image(systemName: bannerImage == nil ? "plus" : "camera.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundStyle(.white)
+                            }
+                            .padding(AppSpacing.sm)
+                        }
+                    }
+                    .padding(.horizontal, AppSpacing.md)
+                    .onChange(of: bannerItem) { _, item in
+                        Task {
+                            if let data = try? await item?.loadTransferable(type: Data.self),
+                               let ui = UIImage(data: data) {
+                                await MainActor.run { bannerImage = ui }
+                            }
+                        }
+                    }
 
                     // ── Trip name ──────────────────────────────────────
                     formSection(title: "Trip Name", icon: "pencil") {
@@ -184,7 +238,7 @@ struct CreateTripView: View {
         errorMsg   = nil
         Task {
             do {
-                _ = try await tripService.create(
+                let trip = try await tripService.create(
                     title:           tripTitle.trimmingCharacters(in: .whitespaces),
                     destinationName: destinationName.trimmingCharacters(in: .whitespaces),
                     destinationId:   selectedDestId,
@@ -193,6 +247,10 @@ struct CreateTripView: View {
                     totalBudget:     Double(budget) ?? 0,
                     currency:        currency
                 )
+                // Upload banner if one was picked
+                if let jpeg = bannerImage?.jpegData(compressionQuality: 0.85) {
+                    try? await tripService.updateCoverImage(tripId: trip.id, imageData: jpeg)
+                }
                 await MainActor.run { dismiss() }
             } catch {
                 await MainActor.run {
@@ -206,7 +264,7 @@ struct CreateTripView: View {
 
 // MARK: - Date picker row
 
-private struct DatePickerRow: View {
+struct DatePickerRow: View {
     let label: String
     @Binding var date: Date
     var minimumDate: Date? = nil

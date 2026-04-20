@@ -5,13 +5,16 @@ import PhotosUI
 
 struct ProfileView: View {
     @Environment(AuthViewModel.self) private var authVM
-    @State private var tripService     = TripService()
-    @State private var showEditProfile = false
+    @State private var tripService      = TripService()
+    @State private var profileService   = ProfileService()
+    @State private var showEditProfile  = false
     @State private var showSignOutConfirm = false
 
     // Avatar photo
     @State private var avatarItem: PhotosPickerItem?
     @State private var avatarImage: Image?
+    @State private var isUploadingAvatar = false
+    @State private var avatarError: String?
 
     private var displayName: String { authVM.currentUser?.name ?? "Traveller" }
     private var email: String       { authVM.currentUser?.email ?? "" }
@@ -127,24 +130,42 @@ struct ProfileView: View {
                     .frame(width: 96, height: 96)
                     .clipShape(Circle())
 
-                    // Camera badge
+                    // Camera badge / uploading spinner
                     Circle()
-                        .fill(Color(hex: "#E9A84C"))
+                        .fill(isUploadingAvatar ? Color(.systemGray3) : Color(hex: "#E9A84C"))
                         .frame(width: 28, height: 28)
                         .overlay(
-                            Image(systemName: "camera.fill")
-                                .font(.system(size: 12))
-                                .foregroundStyle(.white)
+                            Group {
+                                if isUploadingAvatar {
+                                    ProgressView().scaleEffect(0.6).tint(.white)
+                                } else {
+                                    Image(systemName: "camera.fill")
+                                        .font(.system(size: 12))
+                                        .foregroundStyle(.white)
+                                }
+                            }
                         )
                         .offset(x: 2, y: 2)
                 }
             }
             .onChange(of: avatarItem) { _, item in
                 Task {
-                    if let data = try? await item?.loadTransferable(type: Data.self),
-                       let ui   = UIImage(data: data) {
-                        avatarImage = Image(uiImage: ui)
+                    guard let item,
+                          let data = try? await item.loadTransferable(type: Data.self),
+                          let ui   = UIImage(data: data) else { return }
+
+                    // Show locally immediately
+                    await MainActor.run { avatarImage = Image(uiImage: ui) }
+
+                    // Compress and upload
+                    guard let jpeg = ui.jpegData(compressionQuality: 0.82) else { return }
+                    await MainActor.run { isUploadingAvatar = true; avatarError = nil }
+                    do {
+                        _ = try await profileService.uploadAvatar(jpeg)
+                    } catch {
+                        await MainActor.run { avatarError = error.localizedDescription }
                     }
+                    await MainActor.run { isUploadingAvatar = false }
                 }
             }
 
@@ -156,8 +177,29 @@ struct ProfileView: View {
                     .font(AppFont.bodySmall)
                     .foregroundStyle(.secondary)
             }
+
+            if let err = avatarError {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.circle.fill")
+                    Text(err).font(AppFont.caption).lineLimit(2)
+                }
+                .foregroundStyle(.red)
+                .padding(.horizontal, AppSpacing.sm)
+                .multilineTextAlignment(.center)
+            }
         }
         .padding(.vertical, AppSpacing.md)
+        .task {
+            await profileService.fetch()
+            // Restore saved avatar if no local pick yet
+            if avatarImage == nil, let urlStr = profileService.profile?.avatarUrl,
+               let url = URL(string: urlStr) {
+                let (data, _) = (try? await URLSession.shared.data(from: url)) ?? (nil, URLResponse())
+                if let data, let ui = UIImage(data: data) {
+                    avatarImage = Image(uiImage: ui)
+                }
+            }
+        }
     }
 
     // MARK: - Stats row

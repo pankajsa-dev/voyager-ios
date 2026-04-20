@@ -55,9 +55,9 @@ final class ProfileService {
         guard let userId = try? await auth.session.user.id.uuidString else { return }
         await MainActor.run { isSaving = true }
         let payload: [String: AnyJSON] = [
-            "name":       .string(name),
-            "home_city":  .string(homeCity),
-            "bio":        .string(bio),
+            "name":         .string(name),
+            "home_city":    .string(homeCity),
+            "bio":          .string(bio),
             "travel_prefs": .array(travelPrefs.map { .string($0) }),
         ]
         try? await db.from(Table.profiles).update(payload).eq("id", value: userId).execute()
@@ -71,20 +71,37 @@ final class ProfileService {
     }
 
     // ── Upload avatar ─────────────────────────────────────────────────────
+    /// Uploads to Cloudflare R2 when configured, otherwise falls back to Supabase Storage.
     func uploadAvatar(_ imageData: Data) async throws -> String {
         let userId = try await auth.session.user.id.uuidString
         let path   = "avatars/\(userId)/avatar.jpg"
-        try await storage.upload(
-            path: path,
-            file: imageData,
-            options: FileOptions(contentType: "image/jpeg", upsert: true)
-        )
-        let url = try storage.getPublicURL(path: path)
-        let urlString = url.absoluteString
-        try? await db.from(Table.profiles)
+        var urlString: String
+
+        if CloudflareR2Config.isConfigured {
+            // ── Cloudflare R2 (preferred — 10 GB free, no egress fees) ──
+            urlString = try await CloudflareR2Service.shared.uploadImage(
+                imageData,
+                path: path,
+                contentType: "image/jpeg"
+            )
+        } else {
+            // ── Supabase Storage fallback ─────────────────────────────────
+            try await storage.upload(
+                path,
+                data: imageData,
+                options: .init(contentType: "image/jpeg", upsert: true)
+            )
+            let url = try storage.getPublicURL(path: path)
+            urlString = url.absoluteString
+        }
+
+        // Persist the URL in the profiles table
+        try? await db
+            .from(Table.profiles)
             .update(["avatar_url": urlString])
             .eq("id", value: userId)
             .execute()
+
         await MainActor.run { profile?.avatarUrl = urlString }
         return urlString
     }

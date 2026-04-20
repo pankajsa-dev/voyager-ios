@@ -69,7 +69,7 @@ struct RootView: View {
     @ViewBuilder
     private func tabContent(for tab: AppTab) -> some View {
         switch tab {
-        case .home:     HomeView()
+        case .home:     HomeView(selectedTab: $selectedTab)
         case .explore:  ExploreView()
         case .trips:    TripsView()
         case .bookings: BookingsView()

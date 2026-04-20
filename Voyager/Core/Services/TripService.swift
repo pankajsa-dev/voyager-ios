@@ -44,6 +44,14 @@ final class TripService {
     private let db   = SupabaseManager.shared.database
     private let auth = SupabaseManager.shared.auth
 
+    // Shared ISO8601 encoder — ensures Date fields in ItineraryDay/Activity
+    // are stored as strings that Supabase can round-trip cleanly.
+    static let jsonEncoder: JSONEncoder = {
+        let e = JSONEncoder()
+        e.dateEncodingStrategy = .iso8601
+        return e
+    }()
+
     // ── Fetch all user trips ──────────────────────────────────────────────
     func fetchAll() async {
         guard let userId = try? await auth.session.user.id.uuidString else { return }
@@ -97,8 +105,8 @@ final class TripService {
 
     // ── Update itinerary days ─────────────────────────────────────────────
     func updateItinerary(tripId: String, days: [ItineraryDay]) async throws {
-        let data = try JSONEncoder().encode(days)
-        // Decode into AnyJSON so the update dict stays [String: AnyJSON]
+        // Encode with ISO8601 dates so Supabase JSONB stores strings, not raw doubles
+        let data = try Self.jsonEncoder.encode(days)
         let itineraryJSON = try JSONDecoder().decode(AnyJSON.self, from: data)
         let payload: [String: AnyJSON] = [
             "itinerary_days": itineraryJSON,
@@ -125,6 +133,68 @@ final class TripService {
         if let idx = trips.firstIndex(where: { $0.id == tripId }) {
             await MainActor.run { trips[idx].status = status.rawValue }
         }
+    }
+
+    // ── Update trip details (title, destination, dates, budget) ──────────
+    func updateTripDetails(
+        tripId: String,
+        title: String,
+        destinationName: String,
+        startDate: Date,
+        endDate: Date,
+        totalBudget: Double,
+        currency: String
+    ) async throws {
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let payload: [String: AnyJSON] = [
+            "title":            .string(title),
+            "destination_name": .string(destinationName),
+            "start_date":       .string(fmt.string(from: startDate)),
+            "end_date":         .string(fmt.string(from: endDate)),
+            "total_budget":     .double(totalBudget),
+            "currency":         .string(currency),
+            "updated_at":       .string(ISO8601DateFormatter().string(from: .now)),
+        ]
+        try await db.from(Table.trips).update(payload).eq("id", value: tripId).execute()
+        if let idx = trips.firstIndex(where: { $0.id == tripId }) {
+            await MainActor.run {
+                trips[idx].title           = title
+                trips[idx].destinationName = destinationName
+                trips[idx].startDate       = fmt.string(from: startDate)
+                trips[idx].endDate         = fmt.string(from: endDate)
+                trips[idx].totalBudget     = totalBudget
+                trips[idx].currency        = currency
+            }
+        }
+    }
+
+    // ── Upload and set cover image ────────────────────────────────────────
+    func updateCoverImage(tripId: String, imageData: Data) async throws -> String {
+        let path = "trips/\(tripId)/cover.jpg"
+        var urlString: String
+
+        if CloudflareR2Config.isConfigured {
+            urlString = try await CloudflareR2Service.shared.uploadImage(
+                imageData, path: path, contentType: "image/jpeg"
+            )
+        } else {
+            try await SupabaseManager.shared.storage.upload(
+                path, data: imageData,
+                options: .init(contentType: "image/jpeg", upsert: true)
+            )
+            let url = try SupabaseManager.shared.storage.getPublicURL(path: path)
+            urlString = url.absoluteString
+        }
+
+        let payload: [String: AnyJSON] = [
+            "cover_image_url": .string(urlString),
+            "updated_at":      .string(ISO8601DateFormatter().string(from: .now)),
+        ]
+        try await db.from(Table.trips).update(payload).eq("id", value: tripId).execute()
+        if let idx = trips.firstIndex(where: { $0.id == tripId }) {
+            await MainActor.run { trips[idx].coverImageUrl = urlString }
+        }
+        return urlString
     }
 
     // ── Delete trip ───────────────────────────────────────────────────────
