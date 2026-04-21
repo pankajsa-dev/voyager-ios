@@ -158,6 +158,7 @@ struct DestinationCard: View {
                         destinationName: destination.name,
                         country: destination.country
                     )
+                    .frame(height: 140)  // pin height so grid cells never bleed
 
                     // Rating pill
                     HStack(spacing: 3) {
@@ -228,95 +229,53 @@ struct DestinationHero: View {
     var destinationName: String = ""
     var country: String = ""
 
-    @State private var unsplashURL: String?
+    @State private var fallbackURL: String?
 
     private var imageService: DestinationImageService { .shared }
 
-    /// The best URL to show: stored DB url → unsplash fallback → nil (gradient)
-    private var resolvedURL: URL? {
-        if let first = imageURLs.first, !first.isEmpty {
-            return URL(string: first)
-        }
-        if let fallback = unsplashURL ?? imageService.cachedURL(for: destinationName, country: country) {
-            return URL(string: fallback)
-        }
-        return nil
+    private var effectiveURL: URL? {
+        let stored = imageURLs.first.flatMap { $0.isEmpty ? nil : $0 }
+        return (stored ?? fallbackURL).flatMap { URL(string: $0) }
     }
 
     var body: some View {
-        Group {
-            if let url = resolvedURL {
-                AsyncImage(url: url) { phase in
-                    switch phase {
-                    case .success(let img):
-                        img.resizable().scaledToFill()
-                    case .failure:
-                        gradientPlaceholder
-                    default:
-                        // Show shimmer while loading
-                        gradientPlaceholder.shimmerLight()
+        // GeometryReader gives the exact column/card width so we can pin
+        // the AsyncImage to a pixel-perfect size — prevents scaledToFill()
+        // from reporting a larger layout size to the parent grid/stack.
+        GeometryReader { proxy in
+            ZStack {
+                // Gradient — always-visible background/placeholder
+                LinearGradient(
+                    colors: [Color.voyagerPrimary, Color.voyagerPrimaryLight],
+                    startPoint: .topLeading, endPoint: .bottomTrailing
+                )
+
+                if let url = effectiveURL {
+                    AsyncImage(url: url) { img in
+                        img.resizable()
+                            .scaledToFill()
+                            // Pin to exact size HERE, not just on the container
+                            .frame(width: proxy.size.width, height: height)
+                            .clipped()
+                    } placeholder: {
+                        EmptyView()
                     }
                 }
-            } else {
-                gradientPlaceholder
             }
+            // Container is also pinned — belt-and-suspenders
+            .frame(width: proxy.size.width, height: height)
+            .clipped()
         }
-        .frame(maxWidth: .infinity)
-        .frame(height: height)
-        .clipped()
+        .frame(height: height)          // GeometryReader needs explicit height
         .task(id: destinationName) {
-            // Only fetch from Unsplash when DB has no image
-            guard imageURLs.first?.isEmpty ?? true, imageURLs.isEmpty else { return }
-            guard !destinationName.isEmpty else { return }
-            // Check cache first (instant)
+            let hasStored = imageURLs.first.map { !$0.isEmpty } ?? false
+            guard !hasStored, !destinationName.isEmpty else { return }
             if let cached = imageService.cachedURL(for: destinationName, country: country) {
-                unsplashURL = cached
-                return
+                fallbackURL = cached; return
             }
-            // Fetch asynchronously
             await imageService.fetch(destination: destinationName, country: country)
-            unsplashURL = imageService.cachedURL(for: destinationName, country: country)
+            fallbackURL = imageService.cachedURL(for: destinationName, country: country)
         }
-    }
-
-    private var gradientPlaceholder: some View {
-        LinearGradient(
-            colors: [Color.voyagerPrimary, Color.voyagerPrimaryLight],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .overlay(
-            Image(systemName: "photo.on.rectangle.angled")
-                .font(.title2)
-                .foregroundStyle(.white.opacity(0.35))
-        )
-    }
-}
-
-// Light shimmer for image loading state
-private extension View {
-    func shimmerLight() -> some View {
-        self.modifier(LightShimmerModifier())
-    }
-}
-
-private struct LightShimmerModifier: ViewModifier {
-    @State private var phase: CGFloat = 0
-    func body(content: Content) -> some View {
-        content
-            .overlay(
-                LinearGradient(
-                    colors: [.clear, .white.opacity(0.2), .clear],
-                    startPoint: .init(x: phase - 0.3, y: 0),
-                    endPoint: .init(x: phase + 0.3, y: 0)
-                )
-                .allowsHitTesting(false)
-            )
-            .onAppear {
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) {
-                    phase = 1.3
-                }
-            }
     }
 }
 

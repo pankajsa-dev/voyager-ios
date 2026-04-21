@@ -456,31 +456,24 @@ private struct DestinationCardSmall: View {
 
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            // Image
-            Group {
-                if let urlStr = destination.imageUrls.first, let url = URL(string: urlStr) {
-                    AsyncImage(url: url) { phase in
-                        switch phase {
-                        case .success(let img):
-                            img.resizable().scaledToFill()
-                        default:
-                            placeholderGradient
-                        }
-                    }
-                } else {
-                    placeholderGradient
-                }
-            }
+            // Reuse DestinationHero so Unsplash fallback works here too
+            DestinationHero(
+                imageURLs: destination.imageUrls,
+                height: 195,
+                destinationName: destination.name,
+                country: destination.country
+            )
             .frame(width: 150, height: 195)
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
 
-            // Overlay
+            // Scrim overlay
             LinearGradient(
                 colors: [.clear, .black.opacity(0.65)],
                 startPoint: .center, endPoint: .bottom
             )
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
 
+            // Name + country
             VStack(alignment: .leading, spacing: 2) {
                 Text(destination.name)
                     .font(.system(size: 13, weight: .semibold))
@@ -511,13 +504,6 @@ private struct DestinationCardSmall: View {
         }
         .frame(width: 150, height: 195)
         .cardShadow()
-    }
-
-    private var placeholderGradient: some View {
-        LinearGradient(
-            colors: [Color(hex: "#1A6B6A"), Color(hex: "#2A9D8F")],
-            startPoint: .topLeading, endPoint: .bottomTrailing
-        )
     }
 }
 

@@ -11,7 +11,7 @@
 
 enum UnsplashConfig {
     /// Paste your Unsplash Access Key here
-    static let accessKey = "YOUR_UNSPLASH_ACCESS_KEY"
+    static let accessKey = "00RI3Uf6E6ibpuYo6LP_Jnh1ELOpJKoSXjUXUMIery4"
 
     static var isConfigured: Bool {
         !accessKey.hasPrefix("YOUR_")

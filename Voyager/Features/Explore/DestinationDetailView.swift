@@ -24,7 +24,7 @@ struct DestinationDetailView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 0) {
 
-                // ── Hero ──────────────────────────────────────────────────
+                // ── Hero (full-bleed) ─────────────────────────────────────
                 ZStack(alignment: .bottomLeading) {
                     DestinationHero(
                         imageURLs: destination.imageUrls,
@@ -33,11 +33,9 @@ struct DestinationDetailView: View {
                         country: destination.country
                     )
 
-                    // Gradient scrim
                     LinearGradient(
                         colors: [.clear, .black.opacity(0.65)],
-                        startPoint: .center,
-                        endPoint: .bottom
+                        startPoint: .center, endPoint: .bottom
                     )
                     .frame(height: 300)
 
@@ -61,129 +59,141 @@ struct DestinationDetailView: View {
                     .padding(AppSpacing.md)
                 }
 
-                // ── Quick stats row ───────────────────────────────────────
+                // ── Quick stats row (full-width, own bg) ──────────────────
                 HStack(spacing: 0) {
-                    StatPill(icon: "star.fill",  value: String(format: "%.1f", destination.rating),
-                             label: "\(destination.reviewCount) reviews", iconColor: .yellow)
+                    StatPill(icon: "star.fill",
+                             value: String(format: "%.1f", destination.rating),
+                             label: "\(destination.reviewCount) reviews",
+                             iconColor: .yellow)
                     Divider().frame(height: 36)
                     StatPill(icon: "dollarsign.circle.fill",
                              value: "~$\(Int(destination.avgBudgetPerDay))",
-                             label: "per day", iconColor: Color.voyagerAccent)
+                             label: "per day",
+                             iconColor: Color.voyagerAccent)
                     Divider().frame(height: 36)
-                    StatPill(icon: "globe", value: destination.language,
-                             label: "language", iconColor: Color.voyagerPrimaryLight)
+                    StatPill(icon: "globe",
+                             value: destination.language,
+                             label: "language",
+                             iconColor: Color.voyagerPrimaryLight)
                 }
+                .padding(.horizontal, AppSpacing.lg)
                 .padding(.vertical, AppSpacing.sm)
+                .frame(maxWidth: .infinity)
                 .background(Color(UIColor.secondarySystemGroupedBackground))
                 .cardShadow()
 
-                // ── Overview ──────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                    SectionTitle("Overview")
-                    Text(destination.overview)
-                        .font(AppFont.body)
-                        .foregroundStyle(.primary)
-                        .lineLimit(showFullOverview ? nil : 3)
-                        .lineSpacing(4)
-                    if destination.overview.count > 120 {
-                        Button(showFullOverview ? "Show less" : "Read more") {
-                            withAnimation(.easeInOut(duration: 0.2)) { showFullOverview.toggle() }
-                        }
-                        .font(AppFont.bodySmall)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(Color.voyagerPrimaryLight)
-                    }
-                }
-                .padding(AppSpacing.md)
+                // ── All remaining sections — single consistent padding ────
+                VStack(alignment: .leading, spacing: 0) {
 
-                Divider().padding(.horizontal, AppSpacing.md)
-
-                // ── Tags ──────────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                    SectionTitle("Highlights")
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: AppSpacing.sm) {
-                            ForEach(destination.tags, id: \.self) { tag in
-                                Text(tag)
-                                    .font(AppFont.label)
-                                    .fontWeight(.medium)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    .background(Color.voyagerPrimary.opacity(0.1))
-                                    .foregroundStyle(Color.voyagerPrimary)
-                                    .clipShape(Capsule())
-                            }
-                        }
-                        .padding(.horizontal, AppSpacing.md)
-                    }
-                    .padding(.horizontal, -AppSpacing.md)
-                }
-                .padding(.horizontal, AppSpacing.md)
-                .padding(.vertical, AppSpacing.md)
-
-                Divider().padding(.horizontal, AppSpacing.md)
-
-                // ── Best time to visit ────────────────────────────────────
-                VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                    SectionTitle("Best Time to Visit")
-                    BestMonthsView(months: destination.bestMonths)
-                }
-                .padding(AppSpacing.md)
-
-                Divider().padding(.horizontal, AppSpacing.md)
-
-                // ── Map ───────────────────────────────────────────────────
-                VStack(alignment: .leading, spacing: AppSpacing.sm) {
-                    SectionTitle("Location")
-                    Map(coordinateRegion: $region, annotationItems: [destination]) { dest in
-                        MapAnnotation(coordinate: CLLocationCoordinate2D(
-                            latitude: dest.latitude, longitude: dest.longitude)) {
-                            VStack(spacing: 4) {
-                                ZStack {
-                                    Circle()
-                                        .fill(Color.voyagerPrimary)
-                                        .frame(width: 36, height: 36)
-                                    Text(flag(for: dest.countryCode))
-                                        .font(.system(size: 18))
+                    // Overview
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        SectionTitle("Overview")
+                        Text(destination.overview)
+                            .font(AppFont.body)
+                            .foregroundStyle(.primary)
+                            .lineLimit(showFullOverview ? nil : 3)
+                            .lineSpacing(4)
+                        if destination.overview.count > 120 {
+                            Button(showFullOverview ? "Show less" : "Read more") {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    showFullOverview.toggle()
                                 }
-                                .shadow(radius: 4)
-                                Text(dest.name)
-                                    .font(AppFont.caption)
-                                    .fontWeight(.semibold)
-                                    .padding(.horizontal, 6)
-                                    .padding(.vertical, 2)
-                                    .background(.thinMaterial)
-                                    .clipShape(Capsule())
+                            }
+                            .font(AppFont.bodySmall)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color.voyagerPrimaryLight)
+                        }
+                    }
+                    .padding(.top, AppSpacing.md)
+                    .padding(.bottom, AppSpacing.md)
+
+                    Divider()
+
+                    // Highlights (tags)
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        SectionTitle("Highlights")
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: AppSpacing.sm) {
+                                ForEach(destination.tags, id: \.self) { tag in
+                                    Text(tag)
+                                        .font(AppFont.label)
+                                        .fontWeight(.medium)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        .background(Color.voyagerPrimary.opacity(0.1))
+                                        .foregroundStyle(Color.voyagerPrimary)
+                                        .clipShape(Capsule())
+                                }
                             }
                         }
                     }
-                    .frame(height: 220)
-                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-                    .disabled(false)
-                }
-                .padding(AppSpacing.md)
+                    .padding(.vertical, AppSpacing.md)
 
-                // ── CTA ───────────────────────────────────────────────────
-                Button {
-                    // Navigate to trip planner with this destination pre-filled
-                } label: {
-                    Label("Plan a Trip Here", systemImage: "map.fill")
-                        .font(AppFont.body)
-                        .fontWeight(.semibold)
-                        .foregroundStyle(.white)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                        .background(
-                            LinearGradient(
-                                colors: [Color.voyagerPrimary, Color.voyagerPrimaryLight],
-                                startPoint: .leading, endPoint: .trailing
-                            )
-                        )
+                    Divider()
+
+                    // Best time to visit
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        SectionTitle("Best Time to Visit")
+                        BestMonthsView(months: destination.bestMonths)
+                    }
+                    .padding(.vertical, AppSpacing.md)
+
+                    Divider()
+
+                    // Map
+                    VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                        SectionTitle("Location")
+                        Map(coordinateRegion: $region, annotationItems: [destination]) { dest in
+                            MapAnnotation(coordinate: CLLocationCoordinate2D(
+                                latitude: dest.latitude, longitude: dest.longitude)) {
+                                VStack(spacing: 4) {
+                                    ZStack {
+                                        Circle()
+                                            .fill(Color.voyagerPrimary)
+                                            .frame(width: 36, height: 36)
+                                        Text(flag(for: dest.countryCode))
+                                            .font(.system(size: 18))
+                                    }
+                                    .shadow(radius: 4)
+                                    Text(dest.name)
+                                        .font(AppFont.caption)
+                                        .fontWeight(.semibold)
+                                        .padding(.horizontal, 6)
+                                        .padding(.vertical, 2)
+                                        .background(.thinMaterial)
+                                        .clipShape(Capsule())
+                                }
+                            }
+                        }
+                        .frame(height: 220)
                         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-                        .shadow(color: Color.voyagerPrimary.opacity(0.3), radius: 8, y: 4)
+                    }
+                    .padding(.vertical, AppSpacing.md)
+
+                    // CTA button
+                    Button {
+                        // Navigate to trip planner with this destination pre-filled
+                    } label: {
+                        Label("Plan a Trip Here", systemImage: "map.fill")
+                            .font(AppFont.body)
+                            .fontWeight(.semibold)
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 16)
+                            .background(
+                                LinearGradient(
+                                    colors: [Color.voyagerPrimary, Color.voyagerPrimaryLight],
+                                    startPoint: .leading, endPoint: .trailing
+                                )
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+                            .shadow(color: Color.voyagerPrimary.opacity(0.3), radius: 8, y: 4)
+                    }
+                    .padding(.top, AppSpacing.sm)
+                    .padding(.bottom, AppSpacing.xxl)
                 }
-                .padding(AppSpacing.md)
-                .padding(.bottom, AppSpacing.xl)
+                // ← ONE horizontal padding governs everything below the hero
+                .padding(.horizontal, AppSpacing.md)
             }
         }
         .ignoresSafeArea(edges: .top)
