@@ -116,15 +116,13 @@ private struct TripCard: View {
 
     var body: some View {
         HStack(spacing: AppSpacing.md) {
-            // Thumbnail
+            // Thumbnail — CachedAsyncImage makes re-visits instant
             ZStack {
                 if let urlStr = trip.coverImageUrl, let url = URL(string: urlStr) {
-                    AsyncImage(url: url) { phase in
-                        if case .success(let img) = phase {
-                            img.resizable().scaledToFill()
-                        } else {
-                            gradientThumb
-                        }
+                    CachedAsyncImage(url: url) { img in
+                        img.resizable().scaledToFill()
+                    } placeholder: {
+                        gradientThumb
                     }
                 } else {
                     gradientThumb

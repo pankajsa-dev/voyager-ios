@@ -76,8 +76,8 @@ struct DestinationDetailView: View {
                              label: "language",
                              iconColor: Color.voyagerPrimaryLight)
                 }
-                .padding(.horizontal, AppSpacing.lg)
-                .padding(.vertical, AppSpacing.sm)
+                .padding(.horizontal, AppSpacing.md)
+                .padding(.vertical, AppSpacing.md)
                 .frame(maxWidth: .infinity)
                 .background(Color(UIColor.secondarySystemGroupedBackground))
                 .cardShadow()
@@ -199,6 +199,10 @@ struct DestinationDetailView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        // Hide the bar background here so the hero image shows through cleanly.
+        // Declaring it explicitly prevents the parent (Explore list) from
+        // inheriting this style when the user pops back.
+        .toolbarBackground(.hidden, for: .navigationBar)
         .toolbar {
             ToolbarItem(placement: .navigationBarLeading) {
                 Button { dismiss() } label: {

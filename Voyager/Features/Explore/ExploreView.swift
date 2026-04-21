@@ -103,6 +103,11 @@ struct ExploreView: View {
             }
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Explore")
+            // Explicitly keep the bar opaque so returning from detail (which
+            // uses ignoresSafeArea + a transparent overlay bar) never leaves
+            // a white / ghost background on this screen.
+            .toolbarBackground(.visible, for: .navigationBar)
+            .toolbarBackground(Color(UIColor.systemGroupedBackground), for: .navigationBar)
             .task {
                 await service.fetchAll()
                 await service.fetchSaved()
@@ -158,7 +163,6 @@ struct DestinationCard: View {
                         destinationName: destination.name,
                         country: destination.country
                     )
-                    .frame(height: 140)  // pin height so grid cells never bleed
 
                     // Rating pill
                     HStack(spacing: 3) {
@@ -239,43 +243,40 @@ struct DestinationHero: View {
     }
 
     var body: some View {
-        // GeometryReader gives the exact column/card width so we can pin
-        // the AsyncImage to a pixel-perfect size — prevents scaledToFill()
-        // from reporting a larger layout size to the parent grid/stack.
-        GeometryReader { proxy in
-            ZStack {
-                // Gradient — always-visible background/placeholder
+        // Anchor the layout on Color.clear with the exact target frame FIRST.
+        // Gradient and image are added as non-layout-affecting layers so they
+        // can never inflate the cell height in LazyVGrid.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background {
+                // Gradient — always visible as the loading placeholder
                 LinearGradient(
                     colors: [Color.voyagerPrimary, Color.voyagerPrimaryLight],
                     startPoint: .topLeading, endPoint: .bottomTrailing
                 )
-
+            }
+            .overlay {
                 if let url = effectiveURL {
-                    AsyncImage(url: url) { img in
-                        img.resizable()
-                            .scaledToFill()
-                            // Pin to exact size HERE, not just on the container
-                            .frame(width: proxy.size.width, height: height)
-                            .clipped()
-                    } placeholder: {
-                        EmptyView()
+                    AsyncImage(url: url) { phase in
+                        if let img = phase.image {
+                            img.resizable()
+                                .scaledToFill()
+                        }
                     }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            // Container is also pinned — belt-and-suspenders
-            .frame(width: proxy.size.width, height: height)
             .clipped()
-        }
-        .frame(height: height)          // GeometryReader needs explicit height
-        .task(id: destinationName) {
-            let hasStored = imageURLs.first.map { !$0.isEmpty } ?? false
-            guard !hasStored, !destinationName.isEmpty else { return }
-            if let cached = imageService.cachedURL(for: destinationName, country: country) {
-                fallbackURL = cached; return
+            .task(id: destinationName) {
+                let hasStored = imageURLs.first.map { !$0.isEmpty } ?? false
+                guard !hasStored, !destinationName.isEmpty else { return }
+                if let cached = imageService.cachedURL(for: destinationName, country: country) {
+                    fallbackURL = cached; return
+                }
+                await imageService.fetch(destination: destinationName, country: country)
+                fallbackURL = imageService.cachedURL(for: destinationName, country: country)
             }
-            await imageService.fetch(destination: destinationName, country: country)
-            fallbackURL = imageService.cachedURL(for: destinationName, country: country)
-        }
     }
 }
 
