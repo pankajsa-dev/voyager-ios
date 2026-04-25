@@ -51,6 +51,8 @@ struct HomeView: View {
     @State private var vm              = HomeViewModel()
     @State private var profileService  = ProfileService()
     @State private var selectedDestination: DestinationDTO?
+    @State private var selectedTrip: TripDTO?
+    @State private var homeTripService = TripService()
     private let destinationService = DestinationService()
 
     var body: some View {
@@ -70,12 +72,14 @@ struct HomeView: View {
                         .padding(.horizontal, AppSpacing.md)
 
                     // ── Featured destinations ────────────────────────
-                    SectionHeader(title: "Featured Destinations", actionTitle: "See all") {}
+                    SectionHeader(title: "Featured Destinations", actionTitle: "See all") {
+                        selectedTab = .explore
+                    }
                     featuredDestinationsRow
 
                     // ── Browse by category ───────────────────────────
                     SectionHeader(title: "Browse by Category", actionTitle: nil) {}
-                    CategoriesGrid()
+                    CategoriesGrid { _ in selectedTab = .explore }
                         .padding(.horizontal, AppSpacing.md)
 
                     Spacer(minLength: AppSpacing.xxl)
@@ -93,6 +97,9 @@ struct HomeView: View {
             }
             .navigationDestination(item: $selectedDestination) { dest in
                 DestinationDetailView(destination: dest, service: destinationService)
+            }
+            .navigationDestination(item: $selectedTrip) { trip in
+                TripDetailView(trip: trip, tripService: homeTripService)
             }
             .task {
                 await vm.load()
@@ -168,7 +175,10 @@ struct HomeView: View {
                 .frame(height: 210)
                 .shimmer()
         } else if let trip = vm.upcomingTrip {
-            UpcomingTripBanner(trip: trip)
+            Button { selectedTrip = trip } label: {
+                UpcomingTripBanner(trip: trip)
+            }
+            .buttonStyle(.plain)
         } else {
             EmptyTripBanner()
         }
@@ -510,24 +520,28 @@ private struct DestinationCardSmall: View {
 // MARK: - Categories grid
 
 private struct CategoriesGrid: View {
+    let onSelect: (DestinationCategory) -> Void
     let categories = DestinationCategory.allCases
     let columns = Array(repeating: GridItem(.flexible()), count: 4)
 
     var body: some View {
         LazyVGrid(columns: columns, spacing: AppSpacing.sm) {
             ForEach(categories, id: \.rawValue) { cat in
-                VStack(spacing: 4) {
-                    Text(cat.emoji)
-                        .font(.title2)
-                        .padding(10)
-                        .background(Color(UIColor.secondarySystemGroupedBackground))
-                        .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                    Text(cat.rawValue)
-                        .font(AppFont.caption)
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                        .minimumScaleFactor(0.8)
+                Button { onSelect(cat) } label: {
+                    VStack(spacing: 4) {
+                        Text(cat.emoji)
+                            .font(.title2)
+                            .padding(10)
+                            .background(Color(UIColor.secondarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                        Text(cat.rawValue)
+                            .font(AppFont.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.8)
+                    }
                 }
+                .buttonStyle(.plain)
             }
         }
     }
