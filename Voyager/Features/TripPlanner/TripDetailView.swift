@@ -482,7 +482,12 @@ struct TripDetailView: View {
 
     private func deleteDay(id: String) {
         withAnimation { days.removeAll { $0.id == id } }
-        for i in days.indices { days[i].dayNumber = i + 1 }
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let start = fmt.date(from: trip.startDate) ?? Date()
+        for i in days.indices {
+            days[i].dayNumber = i + 1
+            days[i].date = Calendar.current.date(byAdding: .day, value: i, to: start) ?? start
+        }
         saveItinerary()
     }
 
