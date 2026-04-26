@@ -74,7 +74,8 @@ final class BookingService {
         endDate: Date? = nil,
         totalPrice: Double = 0,
         currency: String = "USD",
-        tripId: String? = nil
+        tripId: String? = nil,
+        notes: String = ""
     ) async throws -> BookingDTO {
         let userId = try await auth.session.user.id.uuidString
         let fmt = ISO8601DateFormatter()
@@ -87,6 +88,7 @@ final class BookingService {
             "start_date":        .string(fmt.string(from: startDate)),
             "total_price":       .double(totalPrice),
             "currency":          .string(currency),
+            "notes":             .string(notes),
         ]
         if let tid = tripId  { payload["trip_id"]  = .string(tid) }
         if let ed  = endDate { payload["end_date"] = .string(fmt.string(from: ed)) }
@@ -96,6 +98,16 @@ final class BookingService {
         guard let booking = created.first else { throw URLError(.badServerResponse) }
         await MainActor.run { bookings.insert(booking, at: 0) }
         return booking
+    }
+
+    func updateStatus(bookingId: String, status: BookingStatus) async throws {
+        let payload: [String: AnyJSON] = ["status": .string(status.rawValue)]
+        try await db.from(Table.bookings).update(payload).eq("id", value: bookingId).execute()
+        await MainActor.run {
+            if let idx = bookings.firstIndex(where: { $0.id == bookingId }) {
+                bookings[idx].status = status.rawValue
+            }
+        }
     }
 
     func delete(bookingId: String) async throws {

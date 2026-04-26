@@ -173,4 +173,46 @@ Voyager/
 
 ## Status
 
-> 🚧 **In active development** — Project scaffolding and base architecture in progress.
+| Feature | Status |
+|---------|--------|
+| Auth (email + Apple Sign-In) | ✅ Done |
+| Home dashboard | ✅ Done |
+| Explore destinations (browse, search, categories) | ✅ Done |
+| Trip planner & day-by-day itinerary | ✅ Done |
+| Budget tracker (expenses, charts, categories) | ✅ Done |
+| Packing checklist | ✅ Done |
+| Bookings (add, view, status, PDF import + document viewer) | ✅ Done |
+| Profile (avatar, stats, edit name) | 🔶 Partial |
+| Weather (embedded in Trip Detail) | 🔶 Partial |
+| Profile settings pages (Notifications, Privacy, Language, Currency, Appearance, Help) | 🔶 Stubs only |
+| Maps (dedicated screen, route visualization) | ❌ Not started |
+| Notifications (push, in-app centre, flight reminders, countdowns) | ❌ Not started |
+| Photo journal (dedicated gallery per trip) | ❌ Not started |
+| Reviews & ratings (destinations, hotels, activities) | ❌ Not started |
+| Offline support | ❌ Not started |
+
+---
+
+## Roadmap
+
+Things identified as missing or worth adding — pick up from here next session.
+
+### Finish existing stubs
+- **Maps screen** — dedicated tab showing all trip destinations as pins, day-by-day route drawn as polylines, tap pin to open destination detail.
+- **Notifications** — trip countdown timer, flight check-in reminder (24h before), day-of activity alerts, price-drop alerts for wishlisted destinations.
+- **Photo journal** — dedicated gallery view per trip (not just per activity), auto-prompt to add photos after a trip day ends, grid + timeline views.
+- **Reviews** — let users rate and write reviews for destinations/hotels/activities they've visited; show community tips on destination detail.
+- **Profile settings pages** — Notifications, Privacy, Language, Currency, Appearance, Help/Support all currently tap to nothing; need real content.
+- **Weather standalone screen** — currently embedded in Trip Detail only; needs a full standalone screen with 7-day forecast and packing suggestions.
+
+### New features
+- **Trip templates** — pre-built 3/5/7-day itineraries for popular destinations (e.g. "3 Days in Tokyo"); one-tap to scaffold a new trip from a template.
+- **Collaborators** — invite travel companions to a trip via link or email so they can view and co-edit the itinerary.
+- **Currency converter** — inline converter in the Budget tracker using live exchange rates; auto-convert expenses entered in foreign currencies.
+- **Visa & entry requirements** — per-destination info card based on the user's passport country (stored in Profile); sourced from a public API or static dataset.
+- **AI trip suggestions** — "Plan a 5-day trip to Tokyo" input using Claude API to auto-scaffold a day-by-day itinerary with activity suggestions.
+
+### Bookings improvements
+- **Link booking to a trip** — associate a booking with a specific trip so it appears in that trip's detail view.
+- **Upcoming vs Past sections** — split the bookings list into two sections rather than a single flat list.
+- **Search within bookings** — search bar to filter by title, provider, or reference number.

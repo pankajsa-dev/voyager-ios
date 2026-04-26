@@ -2,6 +2,7 @@ import SwiftUI
 import PhotosUI
 import UIKit
 import Supabase
+import MapKit
 
 struct TripDetailView: View {
     let tripService: TripService
@@ -20,6 +21,7 @@ struct TripDetailView: View {
     @State private var showEditTrip        = false
     @State private var showShareSheet      = false
     @State private var sharePDFData: Data?
+    @State private var showTripMap         = false
 
     // Tabs
     @State private var selectedTab: DetailTab = .itinerary
@@ -165,6 +167,9 @@ struct TripDetailView: View {
                 TripShareSheet(items: [data])
             }
         }
+        .sheet(isPresented: $showTripMap) {
+            TripMapView(trip: trip, days: days)
+        }
     }
 
     // MARK: - Itinerary tab content
@@ -205,6 +210,11 @@ struct TripDetailView: View {
             HStack(spacing: AppSpacing.sm) {
                 if isSaving {
                     ProgressView().scaleEffect(0.75)
+                }
+                Button {
+                    showTripMap = true
+                } label: {
+                    Image(systemName: "map")
                 }
                 Menu {
                     Button { showEditTrip = true } label: {
@@ -889,6 +899,7 @@ private struct ActivityRow: View {
                                     }
                                 }
                                 .frame(width: 72, height: 72)
+                                .clipped()
                                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
                             }
                         }
@@ -896,6 +907,7 @@ private struct ActivityRow: View {
                     .padding(.horizontal, AppSpacing.md)
                     .padding(.bottom, AppSpacing.sm)
                 }
+                .frame(height: 88)
             }
         }
     }
@@ -910,6 +922,9 @@ struct AddActivitySheet: View {
     @State private var title        = ""
     @State private var category     = ActivityCategory.sightseeing
     @State private var location     = ""
+    @State private var latitude: Double?  = nil
+    @State private var longitude: Double? = nil
+    @State private var showLocationPicker = false
     @State private var hasTime      = false
     @State private var startTime    = Date()
     @State private var duration     = ""
@@ -1031,16 +1046,44 @@ struct AddActivitySheet: View {
 
                 Divider().padding(.leading, 56)
 
-                HStack(spacing: AppSpacing.md) {
-                    Image(systemName: "mappin")
-                        .font(.system(size: 15))
-                        .foregroundStyle(Color(hex: "#E9A84C"))
-                        .frame(width: 28)
-                    TextField("Location (optional)", text: $location)
-                        .font(AppFont.body)
-                        .autocorrectionDisabled()
+                Button { showLocationPicker = true } label: {
+                    HStack(spacing: AppSpacing.md) {
+                        Image(systemName: latitude != nil ? "mappin.circle.fill" : "mappin")
+                            .font(.system(size: 15))
+                            .foregroundStyle(latitude != nil ? Color(hex: "#1A6B6A") : Color(hex: "#E9A84C"))
+                            .frame(width: 28)
+                        if location.isEmpty {
+                            Text("Set location (optional)")
+                                .font(AppFont.body)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(location)
+                                    .font(AppFont.body)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                if latitude != nil {
+                                    Text("Coordinates saved")
+                                        .font(AppFont.caption)
+                                        .foregroundStyle(Color(hex: "#3AAA7A"))
+                                }
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(AppSpacing.md)
                 }
-                .padding(AppSpacing.md)
+                .buttonStyle(.plain)
+                .sheet(isPresented: $showLocationPicker) {
+                    LocationPickerSheet { name, lat, lng in
+                        location = name
+                        latitude = lat
+                        longitude = lng
+                    }
+                }
             }
             .background(Color(UIColor.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
@@ -1257,8 +1300,8 @@ struct AddActivitySheet: View {
             startTime:        hasTime ? startTime : nil,
             durationMinutes:  Int(duration),
             location:         location.trimmingCharacters(in: .whitespaces),
-            latitude:         nil,
-            longitude:        nil,
+            latitude:         latitude,
+            longitude:        longitude,
             estimatedCost:    Double(cost) ?? 0,
             currency:         currency,
             bookingReference: nil,
@@ -1293,6 +1336,9 @@ struct EditActivitySheet: View {
     @State private var title:       String
     @State private var category:    ActivityCategory
     @State private var location:    String
+    @State private var latitude:    Double?
+    @State private var longitude:   Double?
+    @State private var showLocationPicker = false
     @State private var hasTime:     Bool
     @State private var startTime:   Date
     @State private var duration:    String
@@ -1312,6 +1358,8 @@ struct EditActivitySheet: View {
         _title       = State(initialValue: activity.title)
         _category    = State(initialValue: activity.category)
         _location    = State(initialValue: activity.location)
+        _latitude    = State(initialValue: activity.latitude)
+        _longitude   = State(initialValue: activity.longitude)
         _hasTime     = State(initialValue: activity.startTime != nil)
         _startTime   = State(initialValue: activity.startTime ?? Date())
         _duration    = State(initialValue: activity.durationMinutes.map(String.init) ?? "")
@@ -1407,12 +1455,45 @@ struct EditActivitySheet: View {
                 }
                 .padding(AppSpacing.md)
                 Divider().padding(.leading, 56)
-                HStack(spacing: AppSpacing.md) {
-                    Image(systemName: "mappin").font(.system(size: 15))
-                        .foregroundStyle(Color(hex: "#E9A84C")).frame(width: 28)
-                    TextField("Location (optional)", text: $location).font(AppFont.body).autocorrectionDisabled()
+
+                Button { showLocationPicker = true } label: {
+                    HStack(spacing: AppSpacing.md) {
+                        Image(systemName: latitude != nil ? "mappin.circle.fill" : "mappin")
+                            .font(.system(size: 15))
+                            .foregroundStyle(latitude != nil ? Color(hex: "#1A6B6A") : Color(hex: "#E9A84C"))
+                            .frame(width: 28)
+                        if location.isEmpty {
+                            Text("Set location (optional)")
+                                .font(AppFont.body)
+                                .foregroundStyle(.secondary)
+                        } else {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(location)
+                                    .font(AppFont.body)
+                                    .foregroundStyle(.primary)
+                                    .lineLimit(1)
+                                if latitude != nil {
+                                    Text("Coordinates saved")
+                                        .font(AppFont.caption)
+                                        .foregroundStyle(Color(hex: "#3AAA7A"))
+                                }
+                            }
+                        }
+                        Spacer()
+                        Image(systemName: "chevron.right")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(AppSpacing.md)
                 }
-                .padding(AppSpacing.md)
+                .buttonStyle(.plain)
+                .sheet(isPresented: $showLocationPicker) {
+                    LocationPickerSheet { name, lat, lng in
+                        location = name
+                        latitude = lat
+                        longitude = lng
+                    }
+                }
             }
             .background(Color(UIColor.secondarySystemGroupedBackground))
             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
@@ -1580,6 +1661,8 @@ struct EditActivitySheet: View {
         updated.title           = title.trimmingCharacters(in: .whitespaces)
         updated.category        = category
         updated.location        = location.trimmingCharacters(in: .whitespaces)
+        updated.latitude        = latitude
+        updated.longitude       = longitude
         updated.startTime       = hasTime ? startTime : nil
         updated.durationMinutes = Int(duration)
         updated.estimatedCost   = Double(cost) ?? 0
@@ -1592,6 +1675,272 @@ struct EditActivitySheet: View {
             onSave(updated)
             dismiss()
         }
+    }
+}
+
+// MARK: - Location search completer (wraps MKLocalSearchCompleter + delegate)
+
+@Observable
+final class LocationSearcher: NSObject, MKLocalSearchCompleterDelegate {
+    var completions: [MKLocalSearchCompletion] = []
+    var isSearching = false
+
+    private let completer = MKLocalSearchCompleter()
+
+    override init() {
+        super.init()
+        completer.delegate = self
+        completer.resultTypes = [.pointOfInterest, .address]
+    }
+
+    func search(_ query: String) {
+        isSearching = true
+        completer.queryFragment = query
+    }
+
+    func clear() {
+        completer.queryFragment = ""
+        completions = []
+        isSearching = false
+    }
+
+    func completerDidUpdateResults(_ completer: MKLocalSearchCompleter) {
+        completions = completer.results
+        isSearching = false
+    }
+
+    func completer(_ completer: MKLocalSearchCompleter, didFailWithError error: Error) {
+        completions = []
+        isSearching = false
+    }
+
+    func resolve(_ completion: MKLocalSearchCompletion, callback: @escaping (MKMapItem?) -> Void) {
+        let req = MKLocalSearch.Request(completion: completion)
+        MKLocalSearch(request: req).start { response, _ in
+            callback(response?.mapItems.first)
+        }
+    }
+}
+
+// MARK: - Location picker sheet
+
+struct LocationPickerSheet: View {
+    let onSelect: (String, Double, Double) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    @State private var query        = ""
+    @State private var searcher     = LocationSearcher()
+    @State private var selected: MKMapItem? = nil
+    @State private var isResolving  = false
+    @State private var cameraPosition: MapCameraPosition = .automatic
+    @FocusState private var focused: Bool
+
+    var body: some View {
+        NavigationStack {
+            VStack(spacing: 0) {
+                searchBar
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, AppSpacing.sm)
+                    .background(Color(UIColor.secondarySystemGroupedBackground))
+
+                Divider()
+
+                if let item = selected {
+                    mapPreview(item: item)
+                } else {
+                    resultsList
+                }
+            }
+            .background(Color(UIColor.systemGroupedBackground))
+            .navigationTitle("Choose Location")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+                if selected != nil {
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Use") { confirm() }
+                            .fontWeight(.semibold)
+                            .foregroundStyle(Color(hex: "#1A6B6A"))
+                    }
+                }
+            }
+            .onAppear { focused = true }
+        }
+    }
+
+    // MARK: Search bar
+
+    private var searchBar: some View {
+        HStack(spacing: AppSpacing.sm) {
+            Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
+            TextField("Beaches, parks, landmarks…", text: $query)
+                .focused($focused)
+                .autocorrectionDisabled()
+                .submitLabel(.search)
+                .onChange(of: query) { _, new in
+                    selected = nil
+                    if new.isEmpty { searcher.clear() } else { searcher.search(new) }
+                }
+            if !query.isEmpty {
+                Button { query = ""; selected = nil; searcher.clear() } label: {
+                    Image(systemName: "xmark.circle.fill").foregroundStyle(.secondary)
+                }
+            }
+            if searcher.isSearching || isResolving {
+                ProgressView().scaleEffect(0.75)
+            }
+        }
+        .padding(AppSpacing.sm)
+        .background(Color(UIColor.tertiarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    // MARK: Results list
+
+    private var resultsList: some View {
+        Group {
+            if query.isEmpty {
+                VStack(spacing: AppSpacing.md) {
+                    Image(systemName: "map.fill")
+                        .font(.system(size: 48))
+                        .foregroundStyle(Color(hex: "#1A6B6A").opacity(0.35))
+                    Text("Search for a place")
+                        .font(AppFont.body).foregroundStyle(.secondary)
+                    Text("Try: \"Nin Beach Zadar\", \"Krka National Park\"")
+                        .font(AppFont.caption).foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(AppSpacing.xxl)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if searcher.completions.isEmpty && !searcher.isSearching {
+                VStack(spacing: AppSpacing.md) {
+                    Image(systemName: "mappin.slash")
+                        .font(.system(size: 40))
+                        .foregroundStyle(.secondary.opacity(0.5))
+                    Text("No results for \"\(query)\"")
+                        .font(AppFont.body).foregroundStyle(.secondary)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                List(searcher.completions.indices, id: \.self) { idx in
+                    let completion = searcher.completions[idx]
+                    Button { resolveAndSelect(completion) } label: {
+                        HStack(spacing: AppSpacing.md) {
+                            Image(systemName: "mappin.circle.fill")
+                                .font(.system(size: 22))
+                                .foregroundStyle(Color(hex: "#1A6B6A"))
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(completion.title)
+                                    .font(AppFont.body).foregroundStyle(.primary)
+                                if !completion.subtitle.isEmpty {
+                                    Text(completion.subtitle)
+                                        .font(AppFont.caption).foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                }
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color(UIColor.secondarySystemGroupedBackground))
+                }
+                .listStyle(.insetGrouped)
+                .scrollContentBackground(.hidden)
+            }
+        }
+    }
+
+    // MARK: Map preview
+
+    private func mapPreview(item: MKMapItem) -> some View {
+        VStack(spacing: 0) {
+            // Selected location row
+            HStack(spacing: AppSpacing.md) {
+                Image(systemName: "mappin.circle.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(Color(hex: "#1A6B6A"))
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(item.name ?? "")
+                        .font(AppFont.body).fontWeight(.medium)
+                    if let sub = item.placemark.title, sub != item.name {
+                        Text(sub).font(AppFont.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                }
+                Spacer()
+                Button {
+                    selected = nil; query = ""; searcher.clear(); focused = true
+                } label: {
+                    Text("Change").font(AppFont.label).foregroundStyle(Color(hex: "#1A6B6A"))
+                }
+            }
+            .padding(AppSpacing.md)
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+
+            Divider()
+
+            // Map
+            Map(position: $cameraPosition) {
+                Annotation(item.name ?? "", coordinate: item.placemark.coordinate, anchor: .bottom) {
+                    ZStack {
+                        Circle()
+                            .fill(Color(hex: "#1A6B6A"))
+                            .frame(width: 36, height: 36)
+                            .shadow(color: Color(hex: "#1A6B6A").opacity(0.4), radius: 4, y: 2)
+                        Image(systemName: "mappin")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundStyle(.white)
+                    }
+                }
+            }
+            .mapStyle(.standard(elevation: .realistic))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            // Confirm button
+            Button {
+                confirm()
+            } label: {
+                Text("Use This Location")
+                    .font(AppFont.body).fontWeight(.semibold)
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 14)
+                    .background(Color(hex: "#1A6B6A"))
+                    .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            }
+            .padding(AppSpacing.md)
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+        }
+    }
+
+    // MARK: Helpers
+
+    private func resolveAndSelect(_ completion: MKLocalSearchCompletion) {
+        isResolving = true
+        focused = false
+        searcher.resolve(completion) { item in
+            DispatchQueue.main.async {
+                isResolving = false
+                guard let item else { return }
+                selected = item
+                let coord = item.placemark.coordinate
+                withAnimation {
+                    cameraPosition = .region(MKCoordinateRegion(
+                        center: coord,
+                        span: MKCoordinateSpan(latitudeDelta: 0.01, longitudeDelta: 0.01)
+                    ))
+                }
+            }
+        }
+    }
+
+    private func confirm() {
+        guard let item = selected else { return }
+        let coord = item.placemark.coordinate
+        let name = item.name ?? item.placemark.title ?? query
+        onSelect(name, coord.latitude, coord.longitude)
+        dismiss()
     }
 }
 
