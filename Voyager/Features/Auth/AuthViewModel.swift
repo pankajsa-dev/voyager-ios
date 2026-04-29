@@ -20,6 +20,7 @@ final class AuthViewModel {
     // ── Published state ───────────────────────────────────────────────────
     var isAuthenticated: Bool      = false
     var isOnboardingComplete: Bool = false
+    var isRestoringSession: Bool   = true
     var currentUser: AppUser?
     var isLoading: Bool            = false
     var errorMessage: String?
@@ -139,6 +140,32 @@ final class AuthViewModel {
         }
     }
 
+    // ── Google OAuth ──────────────────────────────────────────────────────
+    func signInWithGoogle() async {
+        await MainActor.run { isLoading = true; errorMessage = nil }
+        do {
+            let session = try await supabase.auth.signInWithOAuth(
+                provider: .google,
+                redirectTo: URL(string: "voyager://login-callback")
+            ) { url in
+                try await AuthWebSession.open(url: url, scheme: "voyager")
+            }
+            let name = session.user.userMetadata["full_name"]?.stringValue
+                ?? nameFromEmail(session.user.email ?? "")
+            await MainActor.run {
+                isLoading = false
+                setUser(id: session.user.id.uuidString, name: name, email: session.user.email ?? "")
+            }
+        } catch {
+            await MainActor.run {
+                isLoading = false
+                // Ignore user cancellation
+                if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin { return }
+                errorMessage = "Google sign-in failed. Please try again."
+            }
+        }
+    }
+
     // ── Sign out ──────────────────────────────────────────────────────────
     func signOut() {
         Task {
@@ -159,15 +186,14 @@ final class AuthViewModel {
             let name = session.user.userMetadata["full_name"]?.stringValue
                 ?? nameFromEmail(session.user.email ?? "")
             await MainActor.run {
-                setUser(
-                    id: session.user.id.uuidString,
-                    name: name,
-                    email: session.user.email ?? ""
-                )
+                setUser(id: session.user.id.uuidString, name: name, email: session.user.email ?? "")
+                isRestoringSession = false
             }
         } catch {
-            // No active session — user needs to log in
-            await MainActor.run { isAuthenticated = false }
+            await MainActor.run {
+                isAuthenticated    = false
+                isRestoringSession = false
+            }
         }
     }
 
@@ -211,6 +237,38 @@ final class AuthViewModel {
         }
         // Surface the real message in dev so issues are visible
         return error.localizedDescription
+    }
+}
+
+// MARK: - Web authentication session (for OAuth providers)
+
+@MainActor
+final class AuthWebSession: NSObject, ASWebAuthenticationPresentationContextProviding {
+    static let shared = AuthWebSession()
+
+    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .flatMap(\.windows)
+            .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
+    }
+
+    static func open(url: URL, scheme: String) async throws -> URL {
+        try await withCheckedThrowingContinuation { continuation in
+            let session = ASWebAuthenticationSession(
+                url: url,
+                callbackURLScheme: scheme
+            ) { callbackURL, error in
+                if let error { continuation.resume(throwing: error); return }
+                guard let callbackURL else {
+                    continuation.resume(throwing: URLError(.badURL)); return
+                }
+                continuation.resume(returning: callbackURL)
+            }
+            session.presentationContextProvider = AuthWebSession.shared
+            session.prefersEphemeralWebBrowserSession = true
+            session.start()
+        }
     }
 }
 

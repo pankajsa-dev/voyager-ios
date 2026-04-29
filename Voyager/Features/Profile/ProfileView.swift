@@ -5,10 +5,13 @@ import PhotosUI
 
 struct ProfileView: View {
     @Environment(AuthViewModel.self) private var authVM
-    @State private var tripService      = TripService()
-    @State private var profileService   = ProfileService()
-    @State private var showEditProfile  = false
+    @Environment(AppSettings.self)   private var appSettings
+    @State private var tripService        = TripService()
+    @State private var profileService     = ProfileService()
+    @State private var showEditProfile    = false
     @State private var showSignOutConfirm = false
+    @State private var showCurrencyPicker = false
+    @State private var showLanguagePicker = false
 
     // Avatar photo
     @State private var avatarItem: PhotosPickerItem?
@@ -56,8 +59,8 @@ struct ProfileView: View {
                         ])
 
                         SettingsSection(title: "Preferences", items: [
-                            SettingsRow(icon: "globe",            label: "Language",    tint: Color(hex: "#1A6B6A")) {},
-                            SettingsRow(icon: "dollarsign.circle",label: "Currency",    tint: Color(hex: "#1A6B6A")) {},
+                            SettingsRow(icon: "globe",            label: "Language",    tint: Color(hex: "#1A6B6A"), detail: appSettings.languageDisplayName) { showLanguagePicker = true },
+                            SettingsRow(icon: "dollarsign.circle",label: "Currency",    tint: Color(hex: "#1A6B6A"), detail: appSettings.currency) { showCurrencyPicker = true },
                             SettingsRow(icon: "moon",             label: "Appearance",  tint: Color(hex: "#1A6B6A")) {},
                         ])
 
@@ -96,6 +99,12 @@ struct ProfileView: View {
             .sheet(isPresented: $showEditProfile) {
                 EditProfileView(name: displayName, email: email)
                     .environment(authVM)
+            }
+            .sheet(isPresented: $showCurrencyPicker) {
+                CurrencyPickerSheet(selected: appSettings.currency) { appSettings.currency = $0 }
+            }
+            .sheet(isPresented: $showLanguagePicker) {
+                LanguagePickerSheet(selected: appSettings.languageCode) { appSettings.languageCode = $0 }
             }
             .confirmationDialog("Sign out of Voyager?", isPresented: $showSignOutConfirm, titleVisibility: .visible) {
                 Button("Sign Out", role: .destructive) { authVM.signOut() }
@@ -248,11 +257,12 @@ private struct ProfileStat: View {
 // MARK: - Settings section / row
 
 private struct SettingsRow: Identifiable {
-    let id    = UUID()
-    let icon:  String
-    let label: String
-    let tint:  Color
-    var isDetail: Bool = false
+    let id     = UUID()
+    let icon:   String
+    let label:  String
+    let tint:   Color
+    var detail: String? = nil
+    var isDetail: Bool  = false
     let action: () -> Void
 }
 
@@ -279,6 +289,11 @@ private struct SettingsSection: View {
                                 .foregroundStyle(row.isDetail ? .secondary : .primary)
                                 .lineLimit(1)
                             Spacer()
+                            if let detail = row.detail {
+                                Text(detail)
+                                    .font(AppFont.caption)
+                                    .foregroundStyle(.secondary)
+                            }
                             if !row.isDetail {
                                 Image(systemName: "chevron.right")
                                     .font(.system(size: 12, weight: .medium))
@@ -369,7 +384,105 @@ private struct EditProfileView: View {
     }
 }
 
+// MARK: - Currency picker sheet
+
+private struct CurrencyPickerSheet: View {
+    let selected: String
+    let onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(AppSettings.supportedCurrencies, id: \.self) { code in
+                    Button {
+                        onSelect(code)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(code)
+                                    .font(AppFont.body).fontWeight(.medium)
+                                    .foregroundStyle(.primary)
+                                if let name = Locale(identifier: "en_US").localizedString(forCurrencyCode: code) {
+                                    Text(name)
+                                        .font(AppFont.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                            Spacer()
+                            if code == selected {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color(hex: "#1A6B6A"))
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color(UIColor.secondarySystemGroupedBackground))
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color(UIColor.systemGroupedBackground))
+            .navigationTitle("Currency")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Language picker sheet
+
+private struct LanguagePickerSheet: View {
+    let selected: String
+    let onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(AppSettings.supportedLanguages, id: \.code) { lang in
+                    Button {
+                        onSelect(lang.code)
+                        dismiss()
+                    } label: {
+                        HStack {
+                            Text(lang.name)
+                                .font(AppFont.body)
+                                .foregroundStyle(.primary)
+                            Spacer()
+                            if lang.code == selected {
+                                Image(systemName: "checkmark")
+                                    .foregroundStyle(Color(hex: "#1A6B6A"))
+                                    .fontWeight(.semibold)
+                            }
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .listRowBackground(Color(UIColor.secondarySystemGroupedBackground))
+                }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Color(UIColor.systemGroupedBackground))
+            .navigationTitle("Language")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") { dismiss() }
+                }
+            }
+        }
+    }
+}
+
 #Preview {
     ProfileView()
         .environment(AuthViewModel())
+        .environment(AppSettings.shared)
 }

@@ -137,8 +137,10 @@ private struct LoginFormView: View {
 
             DividerWithLabel(text: "or continue with")
 
-            // Apple sign in
-            AppleSignInButton()
+            VStack(spacing: AppSpacing.sm) {
+                AppleSignInButton()
+                GoogleSignInButton()
+            }
 
             Spacer(minLength: AppSpacing.xl)
         }
@@ -176,7 +178,10 @@ private struct SignUpFormView: View {
 
             DividerWithLabel(text: "or continue with")
 
-            AppleSignInButton()
+            VStack(spacing: AppSpacing.sm) {
+                AppleSignInButton()
+                GoogleSignInButton()
+            }
 
             Text("By signing up you agree to our Terms of Service and Privacy Policy.")
                 .font(AppFont.caption)
@@ -314,7 +319,6 @@ struct ErrorBanner: View {
 
 struct AppleSignInButton: View {
     @Environment(AuthViewModel.self) private var authVM
-    // Nonce is generated per-request and held until the completion fires
     @State private var currentNonce: String?
 
     var body: some View {
@@ -322,13 +326,81 @@ struct AppleSignInButton: View {
             let nonce = randomNonceString()
             currentNonce = nonce
             request.requestedScopes = [.fullName, .email]
-            request.nonce = sha256Nonce(nonce)   // Apple receives hashed nonce
+            request.nonce = sha256Nonce(nonce)
         } onCompletion: { result in
-            authVM.handleAppleSignIn(result, nonce: currentNonce)  // Supabase receives raw nonce
+            authVM.handleAppleSignIn(result, nonce: currentNonce)
         }
         .signInWithAppleButtonStyle(.black)
         .frame(height: 52)
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+    }
+}
+
+struct GoogleSignInButton: View {
+    @Environment(AuthViewModel.self) private var authVM
+
+    var body: some View {
+        Button {
+            Task { await authVM.signInWithGoogle() }
+        } label: {
+            HStack(spacing: 10) {
+                // Google "G" logo using coloured quarter-circles
+                GoogleLogo()
+                    .frame(width: 20, height: 20)
+                Text("Continue with Google")
+                    .font(AppFont.body)
+                    .fontWeight(.semibold)
+                    .foregroundStyle(Color(.label))
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: 52)
+            .background(Color(UIColor.systemBackground))
+            .overlay(
+                RoundedRectangle(cornerRadius: AppRadius.lg)
+                    .stroke(Color(UIColor.separator), lineWidth: 1)
+            )
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        }
+        .disabled(authVM.isLoading)
+    }
+}
+
+private struct GoogleLogo: View {
+    var body: some View {
+        Canvas { ctx, size in
+            let r = size.width / 2
+            let cx = size.width / 2
+            let cy = size.height / 2
+            let segments: [(Color, Double, Double)] = [
+                (.red,   -30,  90),
+                (.yellow, 90, 210),
+                (.green, 210, 270),
+                (.blue,  270, 330),
+            ]
+            for (color, start, end) in segments {
+                let path = Path { p in
+                    p.move(to: CGPoint(x: cx, y: cy))
+                    p.addArc(
+                        center: CGPoint(x: cx, y: cy),
+                        radius: r,
+                        startAngle: .degrees(start),
+                        endAngle: .degrees(end),
+                        clockwise: false
+                    )
+                    p.closeSubpath()
+                }
+                ctx.fill(path, with: .color(color))
+            }
+            // White inner circle (donut)
+            let hole = Path(ellipseIn: CGRect(
+                x: cx - r * 0.55, y: cy - r * 0.55,
+                width: r * 1.1, height: r * 1.1
+            ))
+            ctx.fill(hole, with: .color(.white))
+            // White cutout for the "G" bar
+            let bar = Path(CGRect(x: cx, y: cy - r * 0.18, width: r, height: r * 0.36))
+            ctx.fill(bar, with: .color(.white))
+        }
     }
 }
 

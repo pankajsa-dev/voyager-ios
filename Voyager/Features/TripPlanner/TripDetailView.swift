@@ -892,14 +892,17 @@ private struct ActivityRow: View {
                         ForEach(urls, id: \.self) { urlStr in
                             if let url = URL(string: urlStr) {
                                 AsyncImage(url: url) { phase in
-                                    if case .success(let img) = phase {
-                                        img.resizable().scaledToFill()
-                                    } else {
+                                    switch phase {
+                                    case .success(let img):
+                                        img.resizable()
+                                            .scaledToFill()
+                                            .frame(width: 72, height: 72)
+                                            .clipped()
+                                    default:
                                         Color(hex: "#2A9D8F").opacity(0.2)
+                                            .frame(width: 72, height: 72)
                                     }
                                 }
-                                .frame(width: 72, height: 72)
-                                .clipped()
                                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
                             }
                         }

@@ -271,7 +271,7 @@ private struct AddBookingSheet: View {
     @State private var endDate      = Date()
     @State private var hasEndDate   = false
     @State private var priceText    = ""
-    @State private var currency     = "USD"
+    @State private var currency     = AppSettings.shared.currency
     @State private var notes        = ""
 
     @State private var isImportingPDF   = false

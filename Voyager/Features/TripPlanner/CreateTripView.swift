@@ -12,7 +12,7 @@ struct CreateTripView: View {
     @State private var startDate       = Date()
     @State private var endDate         = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
     @State private var budget          = ""
-    @State private var currency        = "USD"
+    @State private var currency        = AppSettings.shared.currency
     @State private var isCreating      = false
     @State private var errorMsg: String?
 

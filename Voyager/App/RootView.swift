@@ -33,12 +33,15 @@ enum AppTab: Int, CaseIterable {
 // MARK: - Root view (auth gate)
 
 struct RootView: View {
-    @State private var authVM = AuthViewModel()
+    @State private var authVM      = AuthViewModel()
+    @State private var appSettings = AppSettings.shared
     @State private var selectedTab: AppTab = .home
 
     var body: some View {
         Group {
-            if !authVM.isOnboardingComplete {
+            if authVM.isRestoringSession {
+                launchScreen
+            } else if !authVM.isOnboardingComplete {
                 OnboardingView()
                     .environment(authVM)
             } else if !authVM.isAuthenticated {
@@ -47,10 +50,32 @@ struct RootView: View {
             } else {
                 mainTabs
                     .environment(authVM)
+                    .environment(appSettings)
             }
         }
+        .animation(.easeInOut(duration: 0.35), value: authVM.isRestoringSession)
         .animation(.easeInOut(duration: 0.35), value: authVM.isOnboardingComplete)
         .animation(.easeInOut(duration: 0.35), value: authVM.isAuthenticated)
+    }
+
+    private var launchScreen: some View {
+        ZStack {
+            LinearGradient(
+                colors: [Color(hex: "#1A6B6A"), Color(hex: "#2A9D8F")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+            .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                Image(systemName: "airplane.departure")
+                    .font(.system(size: 56, weight: .semibold))
+                    .foregroundStyle(.white)
+                Text("Voyager")
+                    .font(.system(size: 32, weight: .bold, design: .rounded))
+                    .foregroundStyle(.white)
+            }
+        }
     }
 
     // MARK: - Main tab bar
