@@ -147,9 +147,7 @@ final class AuthViewModel {
             let session = try await supabase.auth.signInWithOAuth(
                 provider: .google,
                 redirectTo: URL(string: "voyager://login-callback")
-            ) { url in
-                try await AuthWebSession.open(url: url, scheme: "voyager")
-            }
+            )
             let name = session.user.userMetadata["full_name"]?.stringValue
                 ?? nameFromEmail(session.user.email ?? "")
             await MainActor.run {
@@ -157,11 +155,11 @@ final class AuthViewModel {
                 setUser(id: session.user.id.uuidString, name: name, email: session.user.email ?? "")
             }
         } catch {
+            print("🔴 Google sign-in error: \(error)")
             await MainActor.run {
                 isLoading = false
-                // Ignore user cancellation
                 if (error as? ASWebAuthenticationSessionError)?.code == .canceledLogin { return }
-                errorMessage = "Google sign-in failed. Please try again."
+                errorMessage = friendlyError(error)
             }
         }
     }
@@ -240,37 +238,6 @@ final class AuthViewModel {
     }
 }
 
-// MARK: - Web authentication session (for OAuth providers)
-
-@MainActor
-final class AuthWebSession: NSObject, ASWebAuthenticationPresentationContextProviding {
-    static let shared = AuthWebSession()
-
-    func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap(\.windows)
-            .first(where: \.isKeyWindow) ?? ASPresentationAnchor()
-    }
-
-    static func open(url: URL, scheme: String) async throws -> URL {
-        try await withCheckedThrowingContinuation { continuation in
-            let session = ASWebAuthenticationSession(
-                url: url,
-                callbackURLScheme: scheme
-            ) { callbackURL, error in
-                if let error { continuation.resume(throwing: error); return }
-                guard let callbackURL else {
-                    continuation.resume(throwing: URLError(.badURL)); return
-                }
-                continuation.resume(returning: callbackURL)
-            }
-            session.presentationContextProvider = AuthWebSession.shared
-            session.prefersEphemeralWebBrowserSession = true
-            session.start()
-        }
-    }
-}
 
 // MARK: - Nonce helpers (Apple Sign-In requirement)
 

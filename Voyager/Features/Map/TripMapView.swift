@@ -22,6 +22,7 @@ private struct ActivityAnnotation: Identifiable {
     let category: ActivityCategory
     let dayNumber: Int
     let dayIndex: Int
+    let isCompleted: Bool
 }
 
 // MARK: - TripMapView
@@ -33,11 +34,13 @@ struct TripMapView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedAnnotation: ActivityAnnotation? = nil
     @State private var cameraPosition: MapCameraPosition = .automatic
+    @State private var visibleDays: Set<Int> = []
 
-    // Activities that have coordinates
+    // Activities that have coordinates, filtered to visible days
     private var annotations: [ActivityAnnotation] {
         days.enumerated().flatMap { (dayIdx, day) in
-            day.activities.compactMap { activity in
+            guard visibleDays.contains(dayIdx) else { return [ActivityAnnotation]() }
+            return day.activities.compactMap { activity in
                 guard let lat = activity.latitude, let lng = activity.longitude else { return nil }
                 return ActivityAnnotation(
                     id: activity.id,
@@ -45,15 +48,17 @@ struct TripMapView: View {
                     title: activity.title,
                     category: activity.category,
                     dayNumber: day.dayNumber,
-                    dayIndex: dayIdx
+                    dayIndex: dayIdx,
+                    isCompleted: activity.isCompleted
                 )
             }
         }
     }
 
-    // Coordinates grouped by day (for polylines)
+    // Coordinates grouped by day (for polylines), filtered to visible days
     private var dayRoutes: [(dayIndex: Int, coords: [CLLocationCoordinate2D])] {
         days.enumerated().compactMap { (dayIdx, day) in
+            guard visibleDays.contains(dayIdx) else { return nil }
             let coords = day.activities.compactMap { a -> CLLocationCoordinate2D? in
                 guard let lat = a.latitude, let lng = a.longitude else { return nil }
                 return CLLocationCoordinate2D(latitude: lat, longitude: lng)
@@ -113,6 +118,7 @@ struct TripMapView: View {
         .mapStyle(.standard(elevation: .realistic))
         .ignoresSafeArea(edges: .top)
         .onAppear {
+            visibleDays = Set(days.indices)
             fitCamera()
         }
         .overlay(alignment: .topTrailing) {
@@ -168,23 +174,34 @@ struct TripMapView: View {
                 ForEach(days.indices, id: \.self) { idx in
                     let day = days[idx]
                     let hasCoords = day.activities.contains { $0.latitude != nil }
-                    HStack(spacing: 6) {
-                        Circle()
-                            .fill(dayColor(idx))
-                            .frame(width: 10, height: 10)
-                        Text("Day \(day.dayNumber)")
-                            .font(AppFont.caption)
-                            .fontWeight(.medium)
-                            .foregroundStyle(hasCoords ? .primary : .secondary)
+                    let isVisible = visibleDays.contains(idx)
+                    Button {
+                        withAnimation(.spring(response: 0.25)) {
+                            visibleDays.formSymmetricDifference([idx])
+                        }
+                    } label: {
+                        HStack(spacing: 6) {
+                            Circle()
+                                .fill(dayColor(idx))
+                                .frame(width: 10, height: 10)
+                            Text("Day \(day.dayNumber)")
+                                .font(AppFont.caption)
+                                .fontWeight(.medium)
+                                .foregroundStyle(hasCoords ? .primary : .secondary)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 7)
+                        .background(
+                            hasCoords
+                                ? dayColor(idx).opacity(isVisible ? 0.15 : 0.05)
+                                : Color(UIColor.tertiarySystemGroupedBackground)
+                        )
+                        .clipShape(Capsule())
+                        .overlay(Capsule().stroke(dayColor(idx).opacity(isVisible ? 0.5 : 0), lineWidth: 1))
+                        .opacity(isVisible ? 1 : 0.4)
                     }
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(
-                        hasCoords
-                            ? dayColor(idx).opacity(0.1)
-                            : Color(UIColor.tertiarySystemGroupedBackground)
-                    )
-                    .clipShape(Capsule())
+                    .buttonStyle(.plain)
+                    .disabled(!hasCoords)
                 }
             }
             .padding(.horizontal, AppSpacing.md)
@@ -244,14 +261,24 @@ private struct PinView: View {
     let isSelected: Bool
 
     var body: some View {
-        ZStack {
-            Circle()
-                .fill(dayColor(annotation.dayIndex))
-                .frame(width: isSelected ? 44 : 34, height: isSelected ? 44 : 34)
-                .shadow(color: dayColor(annotation.dayIndex).opacity(0.4), radius: 4, y: 2)
+        ZStack(alignment: .bottomTrailing) {
+            ZStack {
+                Circle()
+                    .fill(dayColor(annotation.dayIndex))
+                    .frame(width: isSelected ? 44 : 34, height: isSelected ? 44 : 34)
+                    .shadow(color: dayColor(annotation.dayIndex).opacity(0.4), radius: 4, y: 2)
 
-            Text(annotation.category.emoji)
-                .font(.system(size: isSelected ? 22 : 16))
+                Text(annotation.category.emoji)
+                    .font(.system(size: isSelected ? 22 : 16))
+            }
+            .opacity(annotation.isCompleted ? 0.5 : 1.0)
+
+            if annotation.isCompleted {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundStyle(.white, Color(hex: "#3AAA7A"))
+                    .offset(x: 4, y: 4)
+            }
         }
         .animation(.spring(response: 0.25), value: isSelected)
     }

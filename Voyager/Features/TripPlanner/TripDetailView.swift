@@ -848,8 +848,9 @@ private struct ActivityRow: View {
                         .foregroundStyle(activity.isCompleted ? .secondary : .primary)
 
                     if !activity.location.isEmpty {
-                        Label(activity.location, systemImage: "mappin")
-                            .font(AppFont.caption).foregroundStyle(.secondary)
+                        Label(activity.location, systemImage: activity.latitude != nil ? "mappin.circle.fill" : "mappin")
+                            .font(AppFont.caption)
+                            .foregroundStyle(activity.latitude != nil ? Color(hex: "#1A6B6A") : .secondary)
                     }
 
                     HStack(spacing: AppSpacing.sm) {
