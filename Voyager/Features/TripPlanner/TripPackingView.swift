@@ -6,6 +6,7 @@ struct TripPackingView: View {
     let trip: TripDTO
     @State private var service = PackingService()
     @State private var showAdd = false
+    @State private var addCategory: PackingCategory = .other
 
     var body: some View {
         ScrollView {
@@ -24,7 +25,10 @@ struct TripPackingView: View {
         }
         .background(Color(UIColor.systemGroupedBackground))
         .overlay(alignment: .bottomTrailing) {
-            Button { showAdd = true } label: {
+            Button {
+                addCategory = .clothing
+                showAdd = true
+            } label: {
                 Image(systemName: "plus")
                     .font(.system(size: 20, weight: .semibold))
                     .foregroundStyle(.white)
@@ -37,11 +41,10 @@ struct TripPackingView: View {
         }
         .task {
             await service.fetchAll(tripId: trip.id)
-            // Seed defaults if brand new list
             try? await service.seedDefaults(tripId: trip.id)
         }
         .sheet(isPresented: $showAdd) {
-            AddPackingItemSheet { name, category, quantity, isEssential in
+            AddPackingItemSheet(initialCategory: addCategory) { name, category, quantity, isEssential in
                 Task { try? await service.add(tripId: trip.id, name: name, category: category,
                                               quantity: quantity, isEssential: isEssential) }
             }
@@ -106,60 +109,106 @@ struct TripPackingView: View {
     private var categoryList: some View {
         VStack(spacing: AppSpacing.md) {
             ForEach(service.usedCategories, id: \.rawValue) { category in
-                let catItems = service.items(for: category)
-                let packedInCat = catItems.filter(\.isPacked).count
-
-                VStack(alignment: .leading, spacing: 0) {
-                    // Category header
-                    HStack {
-                        Text(category.emoji)
-                            .font(.title3)
-                        Text(category.rawValue)
-                            .font(AppFont.h4)
-                        Spacer()
-                        Text("\(packedInCat)/\(catItems.count)")
-                            .font(AppFont.caption).foregroundStyle(.secondary)
-                    }
-                    .padding(.horizontal, AppSpacing.md)
-                    .padding(.vertical, 12)
-
-                    Divider()
-
-                    ForEach(catItems) { item in
-                        PackingItemRow(item: item,
-                            onToggle: { Task { await service.togglePacked(itemId: item.id) } },
-                            onDelete: { Task { try? await service.delete(itemId: item.id) } }
-                        )
-                        if item.id != catItems.last?.id {
-                            Divider().padding(.leading, 52)
-                        }
-                    }
-                }
-                .background(Color(UIColor.secondarySystemGroupedBackground))
-                .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-                .padding(.horizontal, AppSpacing.md)
+                categorySection(category)
+            }
+            // Others always visible at the bottom
+            if !service.usedCategories.contains(.other) {
+                categorySection(.other)
             }
         }
+    }
+
+    private func categorySection(_ category: PackingCategory) -> some View {
+        let catItems = service.items(for: category)
+        let packedInCat = catItems.filter(\.isPacked).count
+
+        return VStack(alignment: .leading, spacing: 0) {
+            // Category header with + button
+            HStack {
+                Text(category.emoji)
+                    .font(.title3)
+                Text(category.rawValue)
+                    .font(AppFont.h4)
+                Spacer()
+                if !catItems.isEmpty {
+                    Text("\(packedInCat)/\(catItems.count)")
+                        .font(AppFont.caption).foregroundStyle(.secondary)
+                }
+                Button {
+                    addCategory = category
+                    showAdd = true
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 20))
+                        .foregroundStyle(Color(hex: "#2A9D8F"))
+                }
+                .buttonStyle(.plain)
+                .padding(.leading, AppSpacing.xs)
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, 12)
+
+            if catItems.isEmpty {
+                // Empty state inline for the category
+                Button {
+                    addCategory = category
+                    showAdd = true
+                } label: {
+                    HStack(spacing: AppSpacing.sm) {
+                        Image(systemName: "plus")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundStyle(Color(hex: "#2A9D8F"))
+                        Text(category == .other ? "Add custom item" : "Add \(category.rawValue.lowercased()) item")
+                            .font(AppFont.bodySmall)
+                            .foregroundStyle(Color(hex: "#2A9D8F"))
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, 14)
+                }
+                .buttonStyle(.plain)
+            } else {
+                Divider()
+
+                ForEach(catItems) { item in
+                    PackingItemRow(item: item,
+                        onToggle: { Task { await service.togglePacked(itemId: item.id) } },
+                        onDelete: { Task { try? await service.delete(itemId: item.id) } }
+                    )
+                    if item.id != catItems.last?.id {
+                        Divider().padding(.leading, 52)
+                    }
+                }
+            }
+        }
+        .background(Color(UIColor.secondarySystemGroupedBackground))
+        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+        .padding(.horizontal, AppSpacing.md)
     }
 
     // MARK: Empty / loading
 
     private var emptyState: some View {
-        VStack(spacing: AppSpacing.sm) {
-            Image(systemName: "bag")
-                .font(.system(size: 44))
-                .foregroundStyle(Color(hex: "#2A9D8F").opacity(0.3))
-            Text("Nothing to pack yet")
-                .font(AppFont.h4).foregroundStyle(.secondary)
-            Text("Tap + to add items or load smart defaults")
-                .font(AppFont.bodySmall).foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
+        VStack(spacing: AppSpacing.lg) {
+            VStack(spacing: AppSpacing.sm) {
+                Image(systemName: "bag")
+                    .font(.system(size: 44))
+                    .foregroundStyle(Color(hex: "#2A9D8F").opacity(0.3))
+                Text("Nothing to pack yet")
+                    .font(AppFont.h4).foregroundStyle(.secondary)
+                Text("Tap + to add items or load smart defaults")
+                    .font(AppFont.bodySmall).foregroundStyle(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, AppSpacing.xl)
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .padding(.horizontal, AppSpacing.md)
+
+            // Others category always shown even in empty state
+            categorySection(.other)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, AppSpacing.xl)
-        .background(Color(UIColor.secondarySystemGroupedBackground))
-        .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
-        .padding(.horizontal, AppSpacing.md)
     }
 
     private var loadingSkeleton: some View {
@@ -238,13 +287,20 @@ private struct PackingItemRow: View {
 // MARK: - Add Packing Item sheet
 
 struct AddPackingItemSheet: View {
+    let initialCategory: PackingCategory
     let onAdd: (String, PackingCategory, Int, Bool) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var name        = ""
-    @State private var category    = PackingCategory.clothing
+    @State private var category: PackingCategory
     @State private var quantity    = 1
     @State private var isEssential = false
+
+    init(initialCategory: PackingCategory = .clothing, onAdd: @escaping (String, PackingCategory, Int, Bool) -> Void) {
+        self.initialCategory = initialCategory
+        self.onAdd = onAdd
+        _category = State(initialValue: initialCategory)
+    }
 
     var body: some View {
         NavigationStack {
