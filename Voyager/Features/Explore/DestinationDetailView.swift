@@ -4,6 +4,8 @@ import MapKit
 struct DestinationDetailView: View {
     let destination: DestinationDTO
     @State var service: DestinationService
+    @State private var tripService     = TripService()
+    @State private var showCreateTrip  = false
     @Environment(\.dismiss) private var dismiss
     @State private var showFullOverview = false
     @State private var region: MKCoordinateRegion
@@ -172,7 +174,7 @@ struct DestinationDetailView: View {
 
                     // CTA button
                     Button {
-                        // Navigate to trip planner with this destination pre-filled
+                        showCreateTrip = true
                     } label: {
                         Label("Plan a Trip Here", systemImage: "map.fill")
                             .font(AppFont.body)
@@ -199,6 +201,9 @@ struct DestinationDetailView: View {
         .ignoresSafeArea(edges: .top)
         .navigationBarTitleDisplayMode(.inline)
         .navigationBarBackButtonHidden(true)
+        .sheet(isPresented: $showCreateTrip) {
+            CreateTripView(tripService: tripService, initialDestination: destination)
+        }
         // Hide the bar background here so the hero image shows through cleanly.
         // Declaring it explicitly prevents the parent (Explore list) from
         // inheriting this style when the user pops back.

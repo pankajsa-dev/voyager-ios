@@ -130,7 +130,16 @@ struct TripDetailView: View {
         .background(Color(UIColor.systemGroupedBackground))
         .navigationBarTitleDisplayMode(.inline)
         .navigationTitle(trip.title)
-        .task { await weatherService.fetch(for: trip.destinationName) }
+        .task {
+            await weatherService.fetch(for: trip.destinationName)
+            // Re-fetch from Supabase so the map always has the latest saved coordinates.
+            // The snapshot passed at init may be stale if a prior save raced with fetchAll().
+            if let fresh = try? await tripService.fetchSingle(tripId: trip.id), !isSaving {
+                await MainActor.run {
+                    days = fresh.itineraryDays.sorted { $0.dayNumber < $1.dayNumber }
+                }
+            }
+        }
         .toolbar { toolbarContent }
         .confirmationDialog("Delete this trip?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
@@ -404,19 +413,9 @@ struct TripDetailView: View {
 
     private var itinerarySection: some View {
         VStack(alignment: .leading, spacing: AppSpacing.md) {
-            HStack {
-                Text("Itinerary")
-                    .font(AppFont.h3)
-                Spacer()
-                Button {
-                    addDay()
-                } label: {
-                    Label("Add Day", systemImage: "plus.circle.fill")
-                        .font(AppFont.bodySmall).fontWeight(.semibold)
-                        .foregroundStyle(Color(hex: "#2A9D8F"))
-                }
-            }
-            .padding(.horizontal, AppSpacing.md)
+            Text("Itinerary")
+                .font(AppFont.h3)
+                .padding(.horizontal, AppSpacing.md)
 
             if days.isEmpty {
                 VStack(spacing: AppSpacing.sm) {
@@ -425,19 +424,9 @@ struct TripDetailView: View {
                         .foregroundStyle(Color(hex: "#2A9D8F").opacity(0.35))
                     Text("No days planned yet")
                         .font(AppFont.h4).foregroundStyle(.secondary)
-                    Text("Tap \"Add Day\" to start building your itinerary")
+                    Text("Add a day to start building your itinerary")
                         .font(AppFont.bodySmall).foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
-                    Button { addDay() } label: {
-                        Label("Add Day 1", systemImage: "plus")
-                            .font(AppFont.bodySmall).fontWeight(.semibold)
-                            .foregroundStyle(.white)
-                            .padding(.horizontal, AppSpacing.lg)
-                            .padding(.vertical, 10)
-                            .background(Color(hex: "#1A6B6A"))
-                            .clipShape(Capsule())
-                    }
-                    .padding(.top, AppSpacing.xs)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppSpacing.xl)
@@ -459,6 +448,26 @@ struct TripDetailView: View {
                 }
                 .padding(.horizontal, AppSpacing.md)
             }
+
+            // "Add Day" always lives at the bottom, visually separate from activity controls
+            Button { addDay() } label: {
+                HStack(spacing: AppSpacing.sm) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.system(size: 15, weight: .semibold))
+                    Text(days.isEmpty ? "Add Day 1" : "Add Day \(days.count + 1)")
+                        .font(AppFont.body).fontWeight(.semibold)
+                }
+                .foregroundStyle(Color(hex: "#1A6B6A"))
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 14)
+                .background(Color(hex: "#1A6B6A").opacity(0.08))
+                .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppRadius.lg)
+                        .stroke(Color(hex: "#1A6B6A").opacity(0.25), lineWidth: 1)
+                )
+            }
+            .padding(.horizontal, AppSpacing.md)
         }
     }
 
@@ -737,12 +746,23 @@ private struct ItineraryDayCard: View {
                 Spacer()
 
                 HStack(spacing: AppSpacing.sm) {
-                    Text("\(day.activities.count)")
-                        .font(AppFont.caption).foregroundStyle(.secondary)
+                    if day.activities.count > 0 {
+                        Text("\(day.activities.count) \(day.activities.count == 1 ? "activity" : "activities")")
+                            .font(AppFont.caption).foregroundStyle(.secondary)
+                    }
 
                     Button(action: onAddActivity) {
-                        Image(systemName: "plus.circle")
-                            .foregroundStyle(Color(hex: "#2A9D8F"))
+                        HStack(spacing: 3) {
+                            Image(systemName: "plus")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Activity")
+                                .font(.system(size: 11, weight: .semibold))
+                        }
+                        .foregroundStyle(Color(hex: "#2A9D8F"))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 5)
+                        .background(Color(hex: "#2A9D8F").opacity(0.1))
+                        .clipShape(Capsule())
                     }
 
                     Button {
@@ -1828,8 +1848,10 @@ struct LocationPickerSheet: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                List(searcher.completions.indices, id: \.self) { idx in
-                    let completion = searcher.completions[idx]
+                // Snapshot completions to avoid index-out-of-bounds if the completer
+                // fires a new result set while SwiftUI is mid-render.
+                let snapshot = Array(searcher.completions.enumerated())
+                List(snapshot, id: \.offset) { idx, completion in
                     Button { resolveAndSelect(completion) } label: {
                         HStack(spacing: AppSpacing.md) {
                             Image(systemName: "mappin.circle.fill")

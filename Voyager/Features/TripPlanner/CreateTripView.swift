@@ -17,13 +17,24 @@ struct CreateTripView: View {
     @State private var errorMsg: String?
 
     // Banner image
-    @State private var bannerItem:  PhotosPickerItem?
-    @State private var bannerImage: UIImage?
+    @State private var bannerItem:        PhotosPickerItem?
+    @State private var bannerImage:       UIImage?
+    @State private var isLoadingBanner =  false
+    private let initialBannerURL:         String?
 
     // Destination search
     @State private var destService     = DestinationService()
     @State private var searchQuery     = ""
     @State private var showDestPicker  = false
+
+    init(tripService: TripService, initialDestination: DestinationDTO? = nil) {
+        self.tripService    = tripService
+        self.initialBannerURL = initialDestination?.imageUrls.first
+        if let dest = initialDestination {
+            _destinationName = State(initialValue: "\(dest.name), \(dest.country)")
+            _selectedDestId  = State(initialValue: dest.id)
+        }
+    }
 
     private let currencies = ["USD", "EUR", "GBP", "INR", "AUD", "CAD", "JPY", "SGD", "AED"]
 
@@ -45,6 +56,10 @@ struct CreateTripView: View {
                                 if let img = bannerImage {
                                     Image(uiImage: img)
                                         .resizable().scaledToFill()
+                                } else if isLoadingBanner {
+                                    RoundedRectangle(cornerRadius: AppRadius.lg)
+                                        .fill(Color(UIColor.secondarySystemGroupedBackground))
+                                        .shimmer()
                                 } else {
                                     LinearGradient(
                                         colors: [Color(hex: "#0D4A49"), Color(hex: "#2A9D8F")],
@@ -65,12 +80,12 @@ struct CreateTripView: View {
                             .frame(maxWidth: .infinity).frame(height: 160)
                             .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
 
-                            // Camera badge
+                            // Camera badge — always visible so user knows they can change the image
                             ZStack {
                                 Circle()
                                     .fill(Color(hex: "#E9A84C"))
                                     .frame(width: 34, height: 34)
-                                Image(systemName: bannerImage == nil ? "plus" : "camera.fill")
+                                Image(systemName: bannerImage == nil && !isLoadingBanner ? "plus" : "camera.fill")
                                     .font(.system(size: 14, weight: .semibold))
                                     .foregroundStyle(.white)
                             }
@@ -78,6 +93,17 @@ struct CreateTripView: View {
                         }
                     }
                     .padding(.horizontal, AppSpacing.md)
+                    .task {
+                        guard bannerImage == nil, let urlString = initialBannerURL,
+                              let url = URL(string: urlString) else { return }
+                        await MainActor.run { isLoadingBanner = true }
+                        if let data = try? await URLSession.shared.data(from: url).0,
+                           let ui = UIImage(data: data) {
+                            await MainActor.run { bannerImage = ui; isLoadingBanner = false }
+                        } else {
+                            await MainActor.run { isLoadingBanner = false }
+                        }
+                    }
                     .onChange(of: bannerItem) { _, item in
                         Task {
                             if let data = try? await item?.loadTransferable(type: Data.self),
@@ -89,7 +115,7 @@ struct CreateTripView: View {
 
                     // ── Trip name ──────────────────────────────────────
                     formSection(title: "Trip Name", icon: "pencil") {
-                        TextField("e.g. Summer in Bali", text: $tripTitle)
+                        TextField(destinationName.isEmpty ? "e.g. Summer in Bali" : "e.g. Trip to \(destinationName.components(separatedBy: ",").first ?? destinationName)", text: $tripTitle)
                             .font(AppFont.body)
                             .padding(AppSpacing.md)
                             .background(Color(UIColor.tertiarySystemGroupedBackground))

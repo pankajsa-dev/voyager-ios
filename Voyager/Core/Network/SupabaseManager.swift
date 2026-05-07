@@ -12,7 +12,10 @@ final class SupabaseManager {
     private init() {
         client = SupabaseClient(
             supabaseURL: URL(string: "https://scpwgtlfaqhlxntadirq.supabase.co")!,
-            supabaseKey: "sb_publishable_4u9gL5r4O2bX3UVH8IAftA_w3NFM6s1"
+            supabaseKey: "sb_publishable_4u9gL5r4O2bX3UVH8IAftA_w3NFM6s1",
+            options: .init(
+                auth: .init(emitLocalSessionAsInitialSession: true)
+            )
         )
     }
 

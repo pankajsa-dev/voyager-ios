@@ -197,6 +197,23 @@ final class TripService {
         return urlString
     }
 
+    // ── Fetch a single trip by ID ─────────────────────────────────────────
+    func fetchSingle(tripId: String) async throws -> TripDTO? {
+        let userId = try await auth.session.user.id.uuidString
+        let results: [TripDTO] = try await db
+            .from(Table.trips)
+            .select()
+            .eq("user_id", value: userId)
+            .eq("id", value: tripId)
+            .limit(1)
+            .execute()
+            .value
+        if let trip = results.first, let idx = trips.firstIndex(where: { $0.id == tripId }) {
+            await MainActor.run { trips[idx] = trip }
+        }
+        return results.first
+    }
+
     // ── Delete trip ───────────────────────────────────────────────────────
     func delete(tripId: String) async throws {
         try await db.from(Table.trips).delete().eq("id", value: tripId).execute()

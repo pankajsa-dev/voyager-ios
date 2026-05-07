@@ -23,6 +23,7 @@ private struct ActivityAnnotation: Identifiable {
     let dayNumber: Int
     let dayIndex: Int
     let isCompleted: Bool
+    let sequenceNumber: Int  // global order across all visible days
 }
 
 // MARK: - TripMapView
@@ -34,14 +35,23 @@ struct TripMapView: View {
     @Environment(\.dismiss) private var dismiss
     @State private var selectedAnnotation: ActivityAnnotation? = nil
     @State private var cameraPosition: MapCameraPosition = .automatic
-    @State private var visibleDays: Set<Int> = []
+    @State private var visibleDays: Set<Int>
 
-    // Activities that have coordinates, filtered to visible days
+    init(trip: TripDTO, days: [ItineraryDay]) {
+        self.trip = trip
+        self.days = days
+        _visibleDays = State(initialValue: Set(days.indices))
+    }
+
+    // All activities with coordinates, in trip order, across visible days.
+    // Each gets a global sequence number so pins can be labelled 1, 2, 3 …
     private var annotations: [ActivityAnnotation] {
-        days.enumerated().flatMap { (dayIdx, day) in
-            guard visibleDays.contains(dayIdx) else { return [ActivityAnnotation]() }
+        var seq = 0
+        return days.enumerated().flatMap { (dayIdx, day) -> [ActivityAnnotation] in
+            guard visibleDays.contains(dayIdx) else { return [] }
             return day.activities.compactMap { activity in
                 guard let lat = activity.latitude, let lng = activity.longitude else { return nil }
+                seq += 1
                 return ActivityAnnotation(
                     id: activity.id,
                     coordinate: CLLocationCoordinate2D(latitude: lat, longitude: lng),
@@ -49,13 +59,14 @@ struct TripMapView: View {
                     category: activity.category,
                     dayNumber: day.dayNumber,
                     dayIndex: dayIdx,
-                    isCompleted: activity.isCompleted
+                    isCompleted: activity.isCompleted,
+                    sequenceNumber: seq
                 )
             }
         }
     }
 
-    // Coordinates grouped by day (for polylines), filtered to visible days
+    // Within-day routes: solid day-colored lines connecting activities of the same day.
     private var dayRoutes: [(dayIndex: Int, coords: [CLLocationCoordinate2D])] {
         days.enumerated().compactMap { (dayIdx, day) in
             guard visibleDays.contains(dayIdx) else { return nil }
@@ -66,6 +77,29 @@ struct TripMapView: View {
             guard coords.count >= 2 else { return nil }
             return (dayIndex: dayIdx, coords: coords)
         }
+    }
+
+    // Inter-day bridges: dashed lines from the last located activity of day N
+    // to the first located activity of day N+1 (among visible days only).
+    private var bridgeRoutes: [(fromDayIndex: Int, coords: [CLLocationCoordinate2D])] {
+        let visible = days.indices.filter { visibleDays.contains($0) }.sorted()
+        var result: [(Int, [CLLocationCoordinate2D])] = []
+        for i in 0 ..< visible.count - 1 {
+            let fromDay = days[visible[i]]
+            let toDay   = days[visible[i + 1]]
+            guard
+                let last  = fromDay.activities.reversed().compactMap({ a -> CLLocationCoordinate2D? in
+                    guard let lat = a.latitude, let lng = a.longitude else { return nil }
+                    return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+                }).first,
+                let first = toDay.activities.compactMap({ a -> CLLocationCoordinate2D? in
+                    guard let lat = a.latitude, let lng = a.longitude else { return nil }
+                    return CLLocationCoordinate2D(latitude: lat, longitude: lng)
+                }).first
+            else { continue }
+            result.append((visible[i], [last, first]))
+        }
+        return result
     }
 
     private var hasAnyCoordinates: Bool { !annotations.isEmpty }
@@ -85,6 +119,7 @@ struct TripMapView: View {
             }
             .navigationTitle(trip.title)
             .navigationBarTitleDisplayMode(.inline)
+            .task { fitCamera() }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Done") { dismiss() }
@@ -97,13 +132,25 @@ struct TripMapView: View {
 
     private var mapContent: some View {
         Map(position: $cameraPosition) {
-            // Day-by-day route polylines
+            // Within-day routes: solid, day-colored
             ForEach(dayRoutes, id: \.dayIndex) { route in
                 MapPolyline(coordinates: route.coords)
-                    .stroke(dayColor(route.dayIndex), style: StrokeStyle(lineWidth: 3, dash: [8, 4]))
+                    .stroke(
+                        dayColor(route.dayIndex),
+                        style: StrokeStyle(lineWidth: 3, lineCap: .round, lineJoin: .round)
+                    )
             }
 
-            // Activity pins
+            // Inter-day bridges: dashed gray to show travel between days
+            ForEach(bridgeRoutes, id: \.fromDayIndex) { bridge in
+                MapPolyline(coordinates: bridge.coords)
+                    .stroke(
+                        Color.secondary.opacity(0.55),
+                        style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [5, 8])
+                    )
+            }
+
+            // Activity pins with sequence numbers
             ForEach(annotations) { ann in
                 Annotation(ann.title, coordinate: ann.coordinate, anchor: .bottom) {
                     PinView(annotation: ann, isSelected: selectedAnnotation?.id == ann.id)
@@ -117,10 +164,6 @@ struct TripMapView: View {
         }
         .mapStyle(.standard(elevation: .realistic))
         .ignoresSafeArea(edges: .top)
-        .onAppear {
-            visibleDays = Set(days.indices)
-            fitCamera()
-        }
         .overlay(alignment: .topTrailing) {
             if let ann = selectedAnnotation {
                 calloutCard(ann)
@@ -142,10 +185,18 @@ struct TripMapView: View {
                 .clipShape(RoundedRectangle(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 2) {
-                Text("Day \(ann.dayNumber)")
-                    .font(AppFont.caption)
-                    .foregroundStyle(dayColor(ann.dayIndex))
-                    .fontWeight(.semibold)
+                HStack(spacing: 4) {
+                    Text("Day \(ann.dayNumber)")
+                        .font(AppFont.caption)
+                        .foregroundStyle(dayColor(ann.dayIndex))
+                        .fontWeight(.semibold)
+                    Text("·")
+                        .font(AppFont.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Stop \(ann.sequenceNumber)")
+                        .font(AppFont.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Text(ann.title)
                     .font(AppFont.body)
                     .fontWeight(.medium)
@@ -262,14 +313,26 @@ private struct PinView: View {
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
-            ZStack {
-                Circle()
-                    .fill(dayColor(annotation.dayIndex))
-                    .frame(width: isSelected ? 44 : 34, height: isSelected ? 44 : 34)
-                    .shadow(color: dayColor(annotation.dayIndex).opacity(0.4), radius: 4, y: 2)
+            ZStack(alignment: .topTrailing) {
+                ZStack {
+                    Circle()
+                        .fill(dayColor(annotation.dayIndex))
+                        .frame(width: isSelected ? 44 : 34, height: isSelected ? 44 : 34)
+                        .shadow(color: dayColor(annotation.dayIndex).opacity(0.4), radius: 4, y: 2)
 
-                Text(annotation.category.emoji)
-                    .font(.system(size: isSelected ? 22 : 16))
+                    Text(annotation.category.emoji)
+                        .font(.system(size: isSelected ? 22 : 16))
+                }
+
+                // Sequence number badge
+                Text("\(annotation.sequenceNumber)")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.white)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 2)
+                    .background(Color.black.opacity(0.55))
+                    .clipShape(Capsule())
+                    .offset(x: 6, y: -4)
             }
             .opacity(annotation.isCompleted ? 0.5 : 1.0)
 
