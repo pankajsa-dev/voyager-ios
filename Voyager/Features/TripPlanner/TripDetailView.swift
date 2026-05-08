@@ -34,6 +34,10 @@ struct TripDetailView: View {
     @State private var localCoverImage: UIImage?
     @State private var isUploadingCover = false
 
+    // Collaboration
+    @State private var memberService    = TripMemberService()
+    @State private var showCollaborators = false
+
     enum DetailTab: String, CaseIterable {
         case itinerary = "Itinerary"
         case expenses  = "Expenses"
@@ -88,6 +92,9 @@ struct TripDetailView: View {
             // ── Hero (always visible) ─────────────────────────────────────
             heroHeader
 
+            // ── Collaborators strip ───────────────────────────────────────
+            collaboratorsStrip
+
             // ── Tab picker ────────────────────────────────────────────────
             HStack(spacing: 0) {
                 ForEach(DetailTab.allCases, id: \.rawValue) { tab in
@@ -132,6 +139,7 @@ struct TripDetailView: View {
         .navigationTitle(trip.title)
         .task {
             await weatherService.fetch(for: trip.destinationName)
+            await memberService.fetchMembers(tripId: trip.id)
             // Re-fetch from Supabase so the map always has the latest saved coordinates.
             // The snapshot passed at init may be stale if a prior save raced with fetchAll().
             if let fresh = try? await tripService.fetchSingle(tripId: trip.id), !isSaving {
@@ -139,6 +147,24 @@ struct TripDetailView: View {
                     days = fresh.itineraryDays.sorted { $0.dayNumber < $1.dayNumber }
                 }
             }
+        }
+        // ── Realtime: refresh itinerary when a collaborator saves changes ─
+        .task(id: trip.id) {
+            let channel = SupabaseManager.shared.client.realtimeV2.channel("trip-\(trip.id)")
+            let updates = await channel.postgresChange(
+                AnyAction.self, schema: "public", table: "trips", filter: "id=eq.\(trip.id)"
+            )
+            await channel.subscribe()
+            for await _ in updates {
+                guard !isSaving else { continue }
+                if let fresh = try? await tripService.fetchSingle(tripId: trip.id) {
+                    await MainActor.run {
+                        days = fresh.itineraryDays.sorted { $0.dayNumber < $1.dayNumber }
+                        trip = fresh
+                    }
+                }
+            }
+            await channel.unsubscribe()
         }
         .toolbar { toolbarContent }
         .confirmationDialog("Delete this trip?", isPresented: $showDeleteConfirm, titleVisibility: .visible) {
@@ -178,6 +204,9 @@ struct TripDetailView: View {
         }
         .sheet(isPresented: $showTripMap) {
             TripMapView(trip: trip, days: days)
+        }
+        .sheet(isPresented: $showCollaborators) {
+            CollaboratorsSheet(trip: trip)
         }
     }
 
@@ -229,11 +258,14 @@ struct TripDetailView: View {
                     Button { showEditTrip = true } label: {
                         Label("Edit Trip", systemImage: "pencil")
                     }
+                    Button { showCollaborators = true } label: {
+                        Label("Collaborators", systemImage: "person.2")
+                    }
                     Button {
                         sharePDFData = makeTripPDF(trip: trip, days: days)
                         showShareSheet = true
                     } label: {
-                        Label("Share Trip", systemImage: "square.and.arrow.up")
+                        Label("Share PDF", systemImage: "square.and.arrow.up")
                     }
                     Divider()
                     Menu("Change Status") {
@@ -329,6 +361,39 @@ struct TripDetailView: View {
             colors: [Color(hex: "#0D4A49"), Color(hex: "#2A9D8F")],
             startPoint: .topLeading, endPoint: .bottomTrailing
         )
+    }
+
+    // MARK: - Collaborators strip
+
+    private var collaboratorsStrip: some View {
+        let accepted = memberService.members.filter { $0.memberStatus == .accepted }
+        return Button { showCollaborators = true } label: {
+            HStack(spacing: AppSpacing.sm) {
+                if accepted.isEmpty {
+                    Image(systemName: "person.badge.plus")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Color(hex: "#1A6B6A"))
+                    Text("Invite collaborators")
+                        .font(AppFont.bodySmall).fontWeight(.medium)
+                        .foregroundStyle(Color(hex: "#1A6B6A"))
+                } else {
+                    MemberAvatarStack(members: accepted)
+                    Text(accepted.count == 1
+                         ? "1 collaborator"
+                         : "\(accepted.count) collaborators")
+                        .font(AppFont.bodySmall).fontWeight(.medium)
+                        .foregroundStyle(.primary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 11))
+                    .foregroundStyle(.tertiary)
+            }
+            .padding(.horizontal, AppSpacing.md)
+            .padding(.vertical, 10)
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Overview

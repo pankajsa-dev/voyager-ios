@@ -40,7 +40,8 @@ struct TripsView: View {
                     ScrollView {
                         LazyVStack(spacing: AppSpacing.sm) {
                             ForEach(filtered) { trip in
-                                TripCard(trip: trip)
+                                TripCard(trip: trip,
+                                         isShared: tripService.sharedTripIds.contains(trip.id))
                                     .onTapGesture { selectedTrip = trip }
                                     .contextMenu {
                                         Button(role: .destructive) {
@@ -86,6 +87,7 @@ struct TripsView: View {
 
 private struct TripCard: View {
     let trip: TripDTO
+    var isShared: Bool = false
 
     private var dateRange: String {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
@@ -160,7 +162,7 @@ private struct TripCard: View {
 
             Spacer()
 
-            // Status + chevron
+            // Status + shared badge + chevron
             VStack(alignment: .trailing, spacing: 6) {
                 Text(trip.status)
                     .font(.system(size: 10, weight: .semibold))
@@ -169,6 +171,20 @@ private struct TripCard: View {
                     .background(statusColor.opacity(0.12))
                     .foregroundStyle(statusColor)
                     .clipShape(Capsule())
+
+                if isShared {
+                    HStack(spacing: 3) {
+                        Image(systemName: "person.2.fill")
+                            .font(.system(size: 9))
+                        Text("Shared")
+                            .font(.system(size: 10, weight: .semibold))
+                    }
+                    .foregroundStyle(Color(hex: "#2A9D8F"))
+                    .padding(.horizontal, 7)
+                    .padding(.vertical, 3)
+                    .background(Color(hex: "#2A9D8F").opacity(0.1))
+                    .clipShape(Capsule())
+                }
 
                 Image(systemName: "chevron.right")
                     .font(.caption)

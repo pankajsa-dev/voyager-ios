@@ -32,6 +32,7 @@ enum Table {
     static let destinations      = "destinations"
     static let savedDestinations = "saved_destinations"
     static let trips             = "trips"
+    static let tripMembers       = "trip_members"
     static let bookings          = "bookings"
     static let expenses          = "expenses"
     static let packingItems      = "packing_items"

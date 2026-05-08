@@ -5,6 +5,7 @@ import Supabase
 
 struct TripDTO: Codable, Identifiable, Hashable {
     let id: String
+    var userId: String?             // owner's user_id
     var title: String
     var destinationId: String?
     var destinationName: String
@@ -21,6 +22,7 @@ struct TripDTO: Codable, Identifiable, Hashable {
 
     enum CodingKeys: String, CodingKey {
         case id, title, status, notes, currency
+        case userId           = "user_id"
         case destinationId    = "destination_id"
         case destinationName  = "destination_name"
         case coverImageUrl    = "cover_image_url"
@@ -37,9 +39,11 @@ struct TripDTO: Codable, Identifiable, Hashable {
 
 @Observable
 final class TripService {
-    var trips: [TripDTO]   = []
-    var isLoading          = false
+    var trips: [TripDTO]              = []
+    var isLoading                     = false
     var errorMessage: String?
+    private(set) var currentUserId:   String     = ""
+    private(set) var sharedTripIds:   Set<String> = []  // trips invited into (not owned)
 
     private let db   = SupabaseManager.shared.database
     private let auth = SupabaseManager.shared.auth
@@ -52,19 +56,53 @@ final class TripService {
         return e
     }()
 
-    // ── Fetch all user trips ──────────────────────────────────────────────
+    // ── Fetch all trips the current user owns OR is a member of ──────────
     func fetchAll() async {
         guard let userId = try? await auth.session.user.id.uuidString else { return }
-        await MainActor.run { isLoading = true; errorMessage = nil }
+        await MainActor.run { isLoading = true; errorMessage = nil; currentUserId = userId }
         do {
-            let results: [TripDTO] = try await db
+            // Own trips
+            async let ownFetch: [TripDTO] = db
                 .from(Table.trips)
                 .select()
                 .eq("user_id", value: userId)
                 .order("start_date", ascending: true)
                 .execute()
                 .value
-            await MainActor.run { trips = results; isLoading = false }
+
+            // Trips I've been invited into and accepted
+            struct MemberRow: Codable { let tripId: String; enum CodingKeys: String, CodingKey { case tripId = "trip_id" } }
+            async let memberFetch: [MemberRow] = db
+                .from(Table.tripMembers)
+                .select("trip_id")
+                .eq("user_id", value: userId)
+                .eq("status", value: "accepted")
+                .execute()
+                .value
+
+            let (ownTrips, memberRows) = try await (ownFetch, memberFetch)
+            let invitedIds = memberRows.map { $0.tripId }
+
+            var sharedTrips: [TripDTO] = []
+            if !invitedIds.isEmpty {
+                sharedTrips = try await db
+                    .from(Table.trips)
+                    .select()
+                    .in("id", values: invitedIds)
+                    .execute()
+                    .value
+            }
+
+            var seen = Set<String>()
+            let all = (ownTrips + sharedTrips)
+                .filter  { seen.insert($0.id).inserted }
+                .sorted  { $0.startDate < $1.startDate }
+
+            await MainActor.run {
+                trips        = all
+                sharedTripIds = Set(invitedIds)
+                isLoading    = false
+            }
         } catch {
             await MainActor.run { errorMessage = "Could not load trips."; isLoading = false }
         }
@@ -198,12 +236,11 @@ final class TripService {
     }
 
     // ── Fetch a single trip by ID ─────────────────────────────────────────
+    // No user_id filter: RLS handles access for both owners and accepted members.
     func fetchSingle(tripId: String) async throws -> TripDTO? {
-        let userId = try await auth.session.user.id.uuidString
         let results: [TripDTO] = try await db
             .from(Table.trips)
             .select()
-            .eq("user_id", value: userId)
             .eq("id", value: tripId)
             .limit(1)
             .execute()

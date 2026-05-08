@@ -4,13 +4,31 @@ import SwiftUI
 
 struct TripExpenseView: View {
     let trip: TripDTO
-    @State private var service = ExpenseService()
-    @State private var showAdd = false
+    @State private var service   = ExpenseService()
+    @State private var showAdd   = false
+    @State private var showMine  = false        // false = All, true = Mine
+
+    private var visibleExpenses: [ExpenseDTO] {
+        showMine
+            ? service.expenses.filter { $0.userId == service.currentUserId }
+            : service.expenses
+    }
+
+    private var activityEstimatesTotal: Double {
+        trip.itineraryDays
+            .flatMap(\.activities)
+            .filter { $0.estimatedCost > 0 }
+            .reduce(0) { $0 + $1.estimatedCost }
+    }
+
+    private var visibleSpent: Double { visibleExpenses.reduce(0) { $0 + $1.amount } }
+    private var combinedTotal: Double { visibleSpent + activityEstimatesTotal }
 
     var body: some View {
         ScrollView {
             VStack(spacing: AppSpacing.lg) {
                 budgetSummaryCard
+                if activityEstimatesTotal > 0 { activityEstimatesSection }
                 if !service.byCategory.isEmpty { categoryBreakdown }
                 expenseList
                 Spacer(minLength: AppSpacing.xxl)
@@ -44,13 +62,13 @@ struct TripExpenseView: View {
 
     private var budgetSummaryCard: some View {
         VStack(spacing: AppSpacing.md) {
-            // Budget vs spent bar
             VStack(alignment: .leading, spacing: AppSpacing.sm) {
+                // Combined total vs budget
                 HStack {
                     VStack(alignment: .leading, spacing: 2) {
-                        Text("Total Spent")
+                        Text("Total Committed")
                             .font(AppFont.label).foregroundStyle(.secondary)
-                        Text("\(trip.currency) \(formatAmount(service.totalSpent))")
+                        Text("\(trip.currency) \(formatAmount(combinedTotal))")
                             .font(.system(size: 28, weight: .bold, design: .rounded))
                             .foregroundStyle(Color(hex: "#1A6B6A"))
                     }
@@ -66,9 +84,27 @@ struct TripExpenseView: View {
                     }
                 }
 
+                // Sub-totals row
+                if activityEstimatesTotal > 0 {
+                    HStack(spacing: AppSpacing.sm) {
+                        Label("\(trip.currency) \(formatAmount(visibleSpent)) logged",
+                              systemImage: "checkmark.circle")
+                            .font(AppFont.caption)
+                            .foregroundStyle(.secondary)
+                        Text("·").font(AppFont.caption).foregroundStyle(.tertiary)
+                        Label("\(trip.currency) \(formatAmount(activityEstimatesTotal)) estimated",
+                              systemImage: "calendar.badge.clock")
+                            .font(AppFont.caption)
+                            .foregroundStyle(Color(hex: "#2A9D8F"))
+                    }
+                }
+
                 if trip.totalBudget > 0 {
-                    let progress = min(service.totalSpent / trip.totalBudget, 1.0)
-                    let overBudget = service.totalSpent > trip.totalBudget
+                    let progress = min(combinedTotal / trip.totalBudget, 1.0)
+                    let overBudget = combinedTotal > trip.totalBudget
+                    let loggedFraction = trip.totalBudget > 0
+                        ? min(visibleSpent / trip.totalBudget, 1.0)
+                        : 0.0
                     GeometryReader { geo in
                         ZStack(alignment: .leading) {
                             RoundedRectangle(cornerRadius: 4)
@@ -78,21 +114,29 @@ struct TripExpenseView: View {
                                 .fill(overBudget ? Color(hex: "#E05D5D") : Color(hex: "#2A9D8F"))
                                 .frame(width: geo.size.width * progress, height: 8)
                                 .animation(.spring(response: 0.5), value: progress)
+                            // Estimated portion shown as lighter overlay on top
+                            if activityEstimatesTotal > 0 && !overBudget {
+                                RoundedRectangle(cornerRadius: 4)
+                                    .fill(Color(hex: "#2A9D8F").opacity(0.35))
+                                    .frame(width: geo.size.width * (progress - loggedFraction), height: 8)
+                                    .offset(x: geo.size.width * loggedFraction)
+                                    .animation(.spring(response: 0.5), value: progress)
+                            }
                         }
                     }
                     .frame(height: 8)
 
                     HStack {
                         if overBudget {
-                            Label("\(trip.currency) \(formatAmount(service.totalSpent - trip.totalBudget)) over budget",
+                            Label("\(trip.currency) \(formatAmount(combinedTotal - trip.totalBudget)) over budget",
                                   systemImage: "exclamationmark.triangle.fill")
                                 .font(AppFont.caption).foregroundStyle(Color(hex: "#E05D5D"))
                         } else {
-                            Text("\(trip.currency) \(formatAmount(trip.totalBudget - service.totalSpent)) remaining")
+                            Text("\(trip.currency) \(formatAmount(trip.totalBudget - combinedTotal)) remaining")
                                 .font(AppFont.caption).foregroundStyle(Color(hex: "#3AAA7A"))
                         }
                         Spacer()
-                        Text("\(Int(progress * 100))% used")
+                        Text("\(Int(progress * 100))% committed")
                             .font(AppFont.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -102,6 +146,60 @@ struct TripExpenseView: View {
         .background(Color(UIColor.secondarySystemGroupedBackground))
         .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
         .padding(.horizontal, AppSpacing.md)
+    }
+
+    // MARK: Activity estimates
+
+    private var activityEstimatesSection: some View {
+        VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            HStack {
+                Label("Activity Estimates", systemImage: "calendar.badge.clock")
+                    .font(AppFont.h4)
+                Spacer()
+                Text("\(trip.currency) \(formatAmount(activityEstimatesTotal))")
+                    .font(AppFont.bodySmall).fontWeight(.semibold)
+                    .foregroundStyle(Color(hex: "#2A9D8F"))
+            }
+            .padding(.horizontal, AppSpacing.md)
+
+            VStack(spacing: 0) {
+                let activitiesWithCost = trip.itineraryDays
+                    .flatMap { day in day.activities.filter { $0.estimatedCost > 0 }.map { (day: day, activity: $0) } }
+
+                ForEach(Array(activitiesWithCost.enumerated()), id: \.element.activity.id) { idx, pair in
+                    HStack(spacing: AppSpacing.md) {
+                        Text(pair.activity.category.emoji)
+                            .font(.title3)
+                            .frame(width: 40, height: 40)
+                            .background(Color(UIColor.tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(pair.activity.title)
+                                .font(AppFont.body).fontWeight(.medium)
+                                .lineLimit(1)
+                            Text("Day \(pair.day.dayNumber) · \(pair.activity.category.rawValue)")
+                                .font(AppFont.caption).foregroundStyle(.secondary)
+                        }
+
+                        Spacer()
+
+                        Text("\(pair.activity.currency) \(formatAmount(pair.activity.estimatedCost))")
+                            .font(.system(size: 15, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Color(hex: "#2A9D8F"))
+                    }
+                    .padding(.horizontal, AppSpacing.md)
+                    .padding(.vertical, 12)
+
+                    if idx < activitiesWithCost.count - 1 {
+                        Divider().padding(.leading, 56 + AppSpacing.md)
+                    }
+                }
+            }
+            .background(Color(UIColor.secondarySystemGroupedBackground))
+            .clipShape(RoundedRectangle(cornerRadius: AppRadius.lg))
+            .padding(.horizontal, AppSpacing.md)
+        }
     }
 
     // MARK: Category breakdown
@@ -158,14 +256,53 @@ struct TripExpenseView: View {
 
     private var expenseList: some View {
         VStack(alignment: .leading, spacing: AppSpacing.sm) {
+            // Header + All/Mine toggle
             HStack {
-                Text("All Expenses")
+                Text("Actual Expenses")
                     .font(AppFont.h4)
                 Spacer()
-                Text("\(service.expenses.count) items")
-                    .font(AppFont.caption).foregroundStyle(.secondary)
+                // All/Mine toggle — only shown when there are multiple expense owners
+                let hasMultipleOwners = Set(service.expenses.map { $0.userId }).count > 1
+                if hasMultipleOwners || !service.expenses.isEmpty {
+                    HStack(spacing: 2) {
+                        ForEach(["All", "Mine"], id: \.self) { label in
+                            let active = label == "Mine" ? showMine : !showMine
+                            Button { withAnimation(.easeInOut(duration: 0.15)) { showMine = label == "Mine" } } label: {
+                                Text(label)
+                                    .font(.system(size: 12, weight: .semibold))
+                                    .padding(.horizontal, 10).padding(.vertical, 5)
+                                    .background(active ? Color(hex: "#1A6B6A") : Color.clear)
+                                    .foregroundStyle(active ? .white : .secondary)
+                                    .clipShape(Capsule())
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(2)
+                    .background(Color(UIColor.tertiarySystemGroupedBackground))
+                    .clipShape(Capsule())
+                }
             }
             .padding(.horizontal, AppSpacing.md)
+
+            // Actual vs estimate comparison pill
+            if activityEstimatesTotal > 0 && !visibleExpenses.isEmpty {
+                let delta = visibleSpent - activityEstimatesTotal
+                let underBudget = delta <= 0
+                HStack(spacing: AppSpacing.xs) {
+                    Image(systemName: underBudget ? "arrow.down.circle.fill" : "arrow.up.circle.fill")
+                        .font(.system(size: 11))
+                    Text(underBudget
+                         ? "\(trip.currency) \(formatAmount(abs(delta))) under estimate"
+                         : "\(trip.currency) \(formatAmount(delta)) over estimate")
+                }
+                .font(AppFont.caption).fontWeight(.medium)
+                .foregroundStyle(underBudget ? Color(hex: "#3AAA7A") : Color(hex: "#E05D5D"))
+                .padding(.horizontal, 10).padding(.vertical, 5)
+                .background((underBudget ? Color(hex: "#3AAA7A") : Color(hex: "#E05D5D")).opacity(0.1))
+                .clipShape(Capsule())
+                .padding(.horizontal, AppSpacing.md)
+            }
 
             if service.isLoading {
                 ForEach(0..<3, id: \.self) { _ in
@@ -174,15 +311,17 @@ struct TripExpenseView: View {
                         .frame(height: 64).shimmer()
                         .padding(.horizontal, AppSpacing.md)
                 }
-            } else if service.expenses.isEmpty {
+            } else if visibleExpenses.isEmpty {
                 VStack(spacing: AppSpacing.sm) {
                     Image(systemName: "creditcard")
                         .font(.system(size: 40))
                         .foregroundStyle(Color(hex: "#2A9D8F").opacity(0.3))
-                    Text("No expenses yet")
+                    Text(showMine ? "No expenses from you yet" : "No expenses yet")
                         .font(AppFont.h4).foregroundStyle(.secondary)
-                    Text("Tap + to log your first expense")
-                        .font(AppFont.bodySmall).foregroundStyle(.secondary)
+                    if !showMine {
+                        Text("Tap + to log your first expense")
+                            .font(AppFont.bodySmall).foregroundStyle(.secondary)
+                    }
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, AppSpacing.xl)
@@ -191,11 +330,12 @@ struct TripExpenseView: View {
                 .padding(.horizontal, AppSpacing.md)
             } else {
                 LazyVStack(spacing: 0) {
-                    ForEach(service.expenses) { expense in
-                        ExpenseRow(expense: expense) {
+                    ForEach(visibleExpenses) { expense in
+                        ExpenseRow(expense: expense,
+                                   showLoggedBy: !showMine && Set(service.expenses.map { $0.userId }).count > 1) {
                             Task { try? await service.delete(expenseId: expense.id) }
                         }
-                        if expense.id != service.expenses.last?.id {
+                        if expense.id != visibleExpenses.last?.id {
                             Divider().padding(.leading, 56 + AppSpacing.md)
                         }
                     }
@@ -220,6 +360,7 @@ struct TripExpenseView: View {
 
 private struct ExpenseRow: View {
     let expense: ExpenseDTO
+    var showLoggedBy: Bool = false
     let onDelete: () -> Void
 
     private var category: ExpenseCategory {
@@ -247,10 +388,14 @@ private struct ExpenseRow: View {
                 HStack(spacing: AppSpacing.xs) {
                     Text(category.rawValue)
                         .font(AppFont.caption).foregroundStyle(.secondary)
-                    Text("·")
-                        .font(AppFont.caption).foregroundStyle(.tertiary)
+                    Text("·").font(AppFont.caption).foregroundStyle(.tertiary)
                     Text(formattedDate)
                         .font(AppFont.caption).foregroundStyle(.secondary)
+                    // Logged-by badge (shown in "All" mode for collaborative trips)
+                    if showLoggedBy, let name = expense.loggedByName {
+                        Text("·").font(AppFont.caption).foregroundStyle(.tertiary)
+                        LoggedByBadge(name: name, avatarUrl: expense.loggedByAvatarUrl)
+                    }
                 }
             }
 
@@ -273,6 +418,45 @@ private struct ExpenseRow: View {
 
     private func formatAmt(_ v: Double) -> String {
         v.truncatingRemainder(dividingBy: 1) == 0 ? "\(Int(v))" : String(format: "%.2f", v)
+    }
+}
+
+// MARK: - Logged-by badge
+
+private struct LoggedByBadge: View {
+    let name: String
+    let avatarUrl: String?
+
+    private var initials: String {
+        let parts = name.split(separator: " ")
+        if parts.count >= 2 { return "\(parts[0].prefix(1))\(parts[1].prefix(1))".uppercased() }
+        return String(name.prefix(2)).uppercased()
+    }
+
+    var body: some View {
+        HStack(spacing: 3) {
+            ZStack {
+                if let urlStr = avatarUrl, let url = URL(string: urlStr) {
+                    AsyncImage(url: url) { phase in
+                        if case .success(let img) = phase { img.resizable().scaledToFill() }
+                        else { initialsCircle }
+                    }
+                } else { initialsCircle }
+            }
+            .frame(width: 14, height: 14)
+            .clipShape(Circle())
+
+            Text(name.components(separatedBy: " ").first ?? name)
+                .font(.system(size: 10, weight: .medium))
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var initialsCircle: some View {
+        ZStack {
+            Circle().fill(Color(hex: "#2A9D8F").opacity(0.3))
+            Text(initials).font(.system(size: 6, weight: .bold)).foregroundStyle(Color(hex: "#1A6B6A"))
+        }
     }
 }
 

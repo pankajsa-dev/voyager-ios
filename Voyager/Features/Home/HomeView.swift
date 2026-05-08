@@ -53,6 +53,7 @@ struct HomeView: View {
     @State private var selectedDestination: DestinationDTO?
     @State private var selectedTrip: TripDTO?
     @State private var homeTripService = TripService()
+    @State private var showCreateTrip  = false
     private let destinationService = DestinationService()
 
     var body: some View {
@@ -108,6 +109,11 @@ struct HomeView: View {
             .refreshable {
                 await vm.load()
                 await profileService.fetch()
+            }
+            .sheet(isPresented: $showCreateTrip, onDismiss: {
+                Task { await vm.load() }
+            }) {
+                CreateTripView(tripService: homeTripService)
             }
         }
     }
@@ -180,7 +186,7 @@ struct HomeView: View {
             }
             .buttonStyle(.plain)
         } else {
-            EmptyTripBanner()
+            EmptyTripBanner { showCreateTrip = true }
         }
     }
 
@@ -376,6 +382,8 @@ private struct UpcomingTripBanner: View {
 // MARK: - Empty trip banner
 
 private struct EmptyTripBanner: View {
+    let onCreate: () -> Void
+
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             LinearGradient(
@@ -412,17 +420,20 @@ private struct EmptyTripBanner: View {
 
                 Spacer(minLength: 8)
 
-                HStack(spacing: 4) {
-                    Image(systemName: "plus.circle.fill")
-                    Text("Create a Trip")
-                        .fontWeight(.semibold)
+                Button(action: onCreate) {
+                    HStack(spacing: 4) {
+                        Image(systemName: "plus.circle.fill")
+                        Text("Create a Trip")
+                            .fontWeight(.semibold)
+                    }
+                    .font(.system(size: 13))
+                    .foregroundStyle(Color(hex: "#1A6B6A"))
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 7)
+                    .background(.white.opacity(0.9))
+                    .clipShape(Capsule())
                 }
-                .font(.system(size: 13))
-                .foregroundStyle(Color(hex: "#1A6B6A"))
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
-                .background(.white.opacity(0.9))
-                .clipShape(Capsule())
+                .buttonStyle(.plain)
             }
             .padding(AppSpacing.md)
         }

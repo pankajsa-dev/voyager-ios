@@ -5,6 +5,7 @@ import Supabase
 
 struct ExpenseDTO: Codable, Identifiable {
     let id: String
+    var userId: String
     let tripId: String
     var title: String
     var amount: Double
@@ -15,8 +16,13 @@ struct ExpenseDTO: Codable, Identifiable {
     var receiptUrl: String?
     let createdAt: String
 
+    // Populated post-fetch (not Codable — set manually after profile enrichment)
+    var loggedByName: String?     = nil
+    var loggedByAvatarUrl: String? = nil
+
     enum CodingKeys: String, CodingKey {
         case id, title, amount, currency, category, date, notes
+        case userId     = "user_id"
         case tripId     = "trip_id"
         case receiptUrl = "receipt_url"
         case createdAt  = "created_at"
@@ -27,26 +33,49 @@ struct ExpenseDTO: Codable, Identifiable {
 
 @Observable
 final class ExpenseService {
-    var expenses: [ExpenseDTO] = []
-    var isLoading  = false
+    var expenses: [ExpenseDTO]     = []
+    var isLoading                  = false
     var errorMessage: String?
+    private(set) var currentUserId = ""
 
     private let db   = SupabaseManager.shared.database
     private let auth = SupabaseManager.shared.auth
 
-    // ── Fetch all expenses for a trip ─────────────────────────────────────
+    // ── Fetch ALL expenses for a trip (all members) ───────────────────────
+    // RLS ensures only trip members can see this data.
+    // Results are enriched with logged-by profile info in a second pass.
     func fetchAll(tripId: String) async {
-        guard let userId = try? await auth.session.user.id.uuidString else { return }
         await MainActor.run { isLoading = true; errorMessage = nil }
         do {
-            let results: [ExpenseDTO] = try await db
+            currentUserId = (try? await auth.session.user.id.uuidString) ?? ""
+            var results: [ExpenseDTO] = try await db
                 .from(Table.expenses)
                 .select()
-                .eq("user_id", value: userId)
                 .eq("trip_id", value: tripId)
                 .order("date", ascending: false)
                 .execute()
                 .value
+
+            // Enrich with profile display names / avatars
+            let userIds = Array(Set(results.map { $0.userId }))
+            if !userIds.isEmpty {
+                struct ProfileRow: Codable {
+                    let id: String; let name: String?; let avatarUrl: String?
+                    enum CodingKeys: String, CodingKey { case id, name; case avatarUrl = "avatar_url" }
+                }
+                let profiles: [ProfileRow] = (try? await db
+                    .from(Table.profiles)
+                    .select("id, name, avatar_url")
+                    .in("id", values: userIds)
+                    .execute()
+                    .value) ?? []
+                let pMap = Dictionary(uniqueKeysWithValues: profiles.map { ($0.id, $0) })
+                for i in results.indices {
+                    results[i].loggedByName     = pMap[results[i].userId]?.name
+                    results[i].loggedByAvatarUrl = pMap[results[i].userId]?.avatarUrl
+                }
+            }
+
             await MainActor.run { expenses = results; isLoading = false }
         } catch {
             await MainActor.run { errorMessage = "Could not load expenses."; isLoading = false }

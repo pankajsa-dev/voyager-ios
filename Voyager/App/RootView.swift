@@ -33,9 +33,14 @@ enum AppTab: Int, CaseIterable {
 // MARK: - Root view (auth gate)
 
 struct RootView: View {
-    @State private var authVM      = AuthViewModel()
-    @State private var appSettings = AppSettings.shared
+    @State private var authVM          = AuthViewModel()
+    @State private var appSettings     = AppSettings.shared
     @State private var selectedTab: AppTab = .home
+
+    // Deep-link state for trip invites (voyager://join?token=...)
+    // NOTE: Add "voyager" to URL Types in Xcode → Target → Info → URL Types
+    @State private var pendingInviteToken: String?
+    @State private var tripServiceForInvite = TripService()
 
     var body: some View {
         Group {
@@ -56,6 +61,27 @@ struct RootView: View {
         .animation(.easeInOut(duration: 0.35), value: authVM.isRestoringSession)
         .animation(.easeInOut(duration: 0.35), value: authVM.isOnboardingComplete)
         .animation(.easeInOut(duration: 0.35), value: authVM.isAuthenticated)
+        // ── Deep link handler ──────────────────────────────────────────────
+        .onOpenURL { url in
+            guard authVM.isAuthenticated,
+                  url.scheme == "voyager",
+                  url.host   == "join",
+                  let components = URLComponents(url: url, resolvingAgainstBaseURL: false),
+                  let token = components.queryItems?.first(where: { $0.name == "token" })?.value
+            else { return }
+            pendingInviteToken = token
+        }
+        .sheet(isPresented: Binding(
+            get: { pendingInviteToken != nil && authVM.isAuthenticated },
+            set: { if !$0 { pendingInviteToken = nil } }
+        )) {
+            if let token = pendingInviteToken {
+                JoinTripView(token: token, tripService: tripServiceForInvite) { _ in
+                    pendingInviteToken = nil
+                    selectedTab = .trips
+                }
+            }
+        }
     }
 
     private var launchScreen: some View {
@@ -89,6 +115,12 @@ struct RootView: View {
             }
         }
         .tint(Color(hex: "#1A6B6A"))
+        // Keep the shared TripService in sync whenever we switch to the Trips tab
+        .onChange(of: selectedTab) { _, tab in
+            if tab == .trips {
+                Task { await tripServiceForInvite.fetchAll() }
+            }
+        }
     }
 
     @ViewBuilder
