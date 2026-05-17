@@ -181,7 +181,8 @@ final class TripService {
         startDate: Date,
         endDate: Date,
         totalBudget: Double,
-        currency: String
+        currency: String,
+        notes: String
     ) async throws {
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let payload: [String: AnyJSON] = [
@@ -191,6 +192,7 @@ final class TripService {
             "end_date":         .string(fmt.string(from: endDate)),
             "total_budget":     .double(totalBudget),
             "currency":         .string(currency),
+            "notes":            .string(notes),
             "updated_at":       .string(ISO8601DateFormatter().string(from: .now)),
         ]
         try await db.from(Table.trips).update(payload).eq("id", value: tripId).execute()
@@ -202,6 +204,7 @@ final class TripService {
                 trips[idx].endDate         = fmt.string(from: endDate)
                 trips[idx].totalBudget     = totalBudget
                 trips[idx].currency        = currency
+                trips[idx].notes           = notes
             }
         }
     }

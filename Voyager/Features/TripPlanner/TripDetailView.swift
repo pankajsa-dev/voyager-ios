@@ -187,7 +187,7 @@ struct TripDetailView: View {
             }
         }
         .sheet(isPresented: $showEditTrip) {
-            EditTripSheet(trip: trip, tripService: tripService) { title, dest, start, end, budget, currency in
+            EditTripSheet(trip: trip, tripService: tripService) { title, dest, start, end, budget, currency, notes in
                 let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
                 trip.title           = title
                 trip.destinationName = dest
@@ -195,6 +195,7 @@ struct TripDetailView: View {
                 trip.endDate         = fmt.string(from: end)
                 trip.totalBudget     = budget
                 trip.currency        = currency
+                trip.notes           = notes
             }
         }
         .sheet(isPresented: $showShareSheet) {
@@ -2040,7 +2041,7 @@ struct LocationPickerSheet: View {
 struct EditTripSheet: View {
     let trip: TripDTO
     let tripService: TripService
-    let onSave: (String, String, Date, Date, Double, String) -> Void
+    let onSave: (String, String, Date, Date, Double, String, String) -> Void
     @Environment(\.dismiss) private var dismiss
 
     @State private var tripTitle: String
@@ -2049,6 +2050,7 @@ struct EditTripSheet: View {
     @State private var endDate: Date
     @State private var budget: String
     @State private var currency: String
+    @State private var notes: String
     @State private var isSaving  = false
     @State private var errorMsg: String?
 
@@ -2060,7 +2062,7 @@ struct EditTripSheet: View {
     private let currencies = ["USD", "EUR", "GBP", "INR", "AUD", "CAD", "JPY", "SGD", "AED"]
 
     init(trip: TripDTO, tripService: TripService,
-         onSave: @escaping (String, String, Date, Date, Double, String) -> Void) {
+         onSave: @escaping (String, String, Date, Date, Double, String, String) -> Void) {
         self.trip       = trip
         self.tripService = tripService
         self.onSave     = onSave
@@ -2071,6 +2073,7 @@ struct EditTripSheet: View {
         _endDate         = State(initialValue: fmt.date(from: trip.endDate)   ?? Date())
         _budget          = State(initialValue: trip.totalBudget > 0 ? "\(Int(trip.totalBudget))" : "")
         _currency        = State(initialValue: trip.currency)
+        _notes           = State(initialValue: trip.notes)
     }
 
     private var isValid: Bool {
@@ -2177,6 +2180,15 @@ struct EditTripSheet: View {
                         }
                     }
 
+                    formSection(title: "Notes (optional)", icon: "note.text") {
+                        TextEditor(text: $notes)
+                            .font(AppFont.body)
+                            .frame(minHeight: 80, maxHeight: 160)
+                            .padding(AppSpacing.sm)
+                            .background(Color(UIColor.tertiarySystemGroupedBackground))
+                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
+                    }
+
                     if let err = errorMsg {
                         HStack {
                             Image(systemName: "exclamationmark.circle.fill")
@@ -2272,7 +2284,8 @@ struct EditTripSheet: View {
                     startDate:       startDate,
                     endDate:         endDate,
                     totalBudget:     Double(budget) ?? 0,
-                    currency:        currency
+                    currency:        currency,
+                    notes:           notes.trimmingCharacters(in: .whitespaces)
                 )
                 await MainActor.run {
                     onSave(
@@ -2280,7 +2293,8 @@ struct EditTripSheet: View {
                         destinationName.trimmingCharacters(in: .whitespaces),
                         startDate, endDate,
                         Double(budget) ?? 0,
-                        currency
+                        currency,
+                        notes.trimmingCharacters(in: .whitespaces)
                     )
                     dismiss()
                 }
