@@ -42,12 +42,14 @@ struct TripDetailView: View {
         case itinerary = "Itinerary"
         case expenses  = "Expenses"
         case packing   = "Packing"
+        case photos    = "Photos"
 
         var icon: String {
             switch self {
             case .itinerary: return "list.bullet"
             case .expenses:  return "creditcard"
             case .packing:   return "bag"
+            case .photos:    return "photo.on.rectangle"
             }
         }
     }
@@ -132,6 +134,8 @@ struct TripDetailView: View {
                 TripExpenseView(trip: trip)
             case .packing:
                 TripPackingView(trip: trip)
+            case .photos:
+                TripPhotoJournalView(trip: trip)
             }
         }
         .background(Color(UIColor.systemGroupedBackground))
