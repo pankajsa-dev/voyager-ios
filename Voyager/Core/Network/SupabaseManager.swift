@@ -37,4 +37,5 @@ enum Table {
     static let expenses          = "expenses"
     static let packingItems      = "packing_items"
     static let journalPhotos     = "trip_journal_photos"
+    static let reviews           = "destination_reviews"
 }

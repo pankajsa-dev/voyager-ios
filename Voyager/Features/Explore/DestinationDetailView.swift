@@ -172,6 +172,14 @@ struct DestinationDetailView: View {
                     }
                     .padding(.vertical, AppSpacing.md)
 
+                    Divider()
+
+                    // Reviews
+                    DestinationReviewsSection(destination: destination)
+                        .padding(.vertical, AppSpacing.md)
+
+                    Divider()
+
                     // CTA button
                     Button {
                         showCreateTrip = true
@@ -215,7 +223,7 @@ struct DestinationDetailView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.white)
                         .padding(8)
-                        .background(.ultraThinMaterial)
+                        .background(Color.black.opacity(0.35))
                         .clipShape(Circle())
                 }
             }
@@ -227,7 +235,7 @@ struct DestinationDetailView: View {
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(isSaved ? Color.voyagerAccent : .white)
                         .padding(8)
-                        .background(.ultraThinMaterial)
+                        .background(Color.black.opacity(0.35))
                         .clipShape(Circle())
                 }
                 .animation(.spring(response: 0.3), value: isSaved)
