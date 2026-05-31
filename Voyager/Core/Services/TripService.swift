@@ -18,10 +18,12 @@ struct TripDTO: Codable, Identifiable, Hashable {
     var totalBudget: Double
     var currency: String
     var isShared: Bool
+    var latitude: Double?
+    var longitude: Double?
     let createdAt: String
 
     enum CodingKeys: String, CodingKey {
-        case id, title, status, notes, currency
+        case id, title, status, notes, currency, latitude, longitude
         case userId           = "user_id"
         case destinationId    = "destination_id"
         case destinationName  = "destination_name"
@@ -116,11 +118,13 @@ final class TripService {
         startDate: Date,
         endDate: Date,
         totalBudget: Double = 0,
-        currency: String = "USD"
+        currency: String = "USD",
+        latitude: Double? = nil,
+        longitude: Double? = nil
     ) async throws -> TripDTO {
         let userId = try await auth.session.user.id.uuidString
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
-        let payload: [String: AnyJSON] = [
+        var payload: [String: AnyJSON] = [
             "user_id":          .string(userId),
             "title":            .string(title),
             "destination_name": .string(destinationName),
@@ -130,6 +134,8 @@ final class TripService {
             "total_budget":     .double(totalBudget),
             "currency":         .string(currency),
         ]
+        if let lat = latitude  { payload["latitude"]  = .double(lat) }
+        if let lng = longitude { payload["longitude"] = .double(lng) }
         let created: [TripDTO] = try await db
             .from(Table.trips)
             .insert(payload)

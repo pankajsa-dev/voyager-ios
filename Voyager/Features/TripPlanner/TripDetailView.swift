@@ -20,7 +20,10 @@ struct TripDetailView: View {
     @State private var editingEntry: EditEntry?
     @State private var showEditTrip        = false
     @State private var showShareSheet      = false
-    @State private var sharePDFData: Data?
+    @State private var sharePDFURL: URL?
+    @State private var showTextShareSheet  = false
+    @State private var shareText: String?
+    @State private var isGeneratingShare   = false
     @State private var showTripMap         = false
 
     // Tabs
@@ -203,8 +206,13 @@ struct TripDetailView: View {
             }
         }
         .sheet(isPresented: $showShareSheet) {
-            if let data = sharePDFData {
-                TripShareSheet(items: [data])
+            if let url = sharePDFURL {
+                TripShareSheet(items: [url])
+            }
+        }
+        .sheet(isPresented: $showTextShareSheet) {
+            if let text = shareText {
+                TripShareSheet(items: [text])
             }
         }
         .sheet(isPresented: $showTripMap) {
@@ -251,7 +259,7 @@ struct TripDetailView: View {
     private var toolbarContent: some ToolbarContent {
         ToolbarItem(placement: .navigationBarTrailing) {
             HStack(spacing: AppSpacing.sm) {
-                if isSaving {
+                if isSaving || isGeneratingShare {
                     ProgressView().scaleEffect(0.75)
                 }
                 Button {
@@ -267,10 +275,27 @@ struct TripDetailView: View {
                         Label("Collaborators", systemImage: "person.2")
                     }
                     Button {
-                        sharePDFData = makeTripPDF(trip: trip, days: days)
-                        showShareSheet = true
+                        Task {
+                            isGeneratingShare = true
+                            let pdfData = makeTripPDF(trip: trip, days: days)
+                            let safeTitle = trip.title
+                                .components(separatedBy: .init(charactersIn: "/\\:?*\"<>|"))
+                                .joined(separator: "_")
+                            let url = FileManager.default.temporaryDirectory
+                                .appendingPathComponent("\(safeTitle).pdf")
+                            try? pdfData.write(to: url)
+                            sharePDFURL = url
+                            isGeneratingShare = false
+                            showShareSheet = true
+                        }
                     } label: {
-                        Label("Share PDF", systemImage: "square.and.arrow.up")
+                        Label("Share as PDF", systemImage: "doc.fill")
+                    }
+                    Button {
+                        shareText = makeTripText(trip: trip, days: days)
+                        showTextShareSheet = true
+                    } label: {
+                        Label("Share as Text", systemImage: "square.and.arrow.up")
                     }
                     Divider()
                     Menu("Change Status") {
@@ -621,6 +646,47 @@ struct TripDetailView: View {
                 }
             }
         }
+    }
+
+    // MARK: - Share helpers
+
+    private func makeTripText(trip: TripDTO, days: [ItineraryDay]) -> String {
+        let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
+        let outFmt = DateFormatter(); outFmt.dateStyle = .long
+        let startStr = fmt.date(from: trip.startDate).map { outFmt.string(from: $0) } ?? trip.startDate
+        let endStr   = fmt.date(from: trip.endDate).map   { outFmt.string(from: $0) } ?? trip.endDate
+        let dayDateFmt = DateFormatter(); dayDateFmt.dateFormat = "EEEE, MMM d"
+        let timeFmt = DateFormatter(); timeFmt.timeStyle = .short
+
+        var lines: [String] = [
+            "🌍 \(trip.title)",
+            "📍 \(trip.destinationName)",
+            "📅 \(startStr) – \(endStr)",
+        ]
+        if trip.totalBudget > 0 {
+            lines.append("💰 Budget: \(trip.currency) \(Int(trip.totalBudget))")
+        }
+        lines.append("")
+
+        for day in days.sorted(by: { $0.dayNumber < $1.dayNumber }) {
+            lines.append("── Day \(day.dayNumber) · \(dayDateFmt.string(from: day.date)) ──")
+            if day.activities.isEmpty {
+                lines.append("  No activities planned")
+            } else {
+                for activity in day.activities {
+                    var row = "  \(activity.category.emoji) \(activity.title)"
+                    if !activity.location.isEmpty { row += " · 📍 \(activity.location)" }
+                    if let t = activity.startTime  { row += " · ⏰ \(timeFmt.string(from: t))" }
+                    if activity.estimatedCost > 0  { row += " · 💰 \(activity.currency) \(Int(activity.estimatedCost))" }
+                    lines.append(row)
+                    if !activity.notes.isEmpty { lines.append("     \(activity.notes)") }
+                }
+            }
+            lines.append("")
+        }
+
+        lines.append("— Shared via Voyager")
+        return lines.joined(separator: "\n")
     }
 
     // MARK: - PDF generation

@@ -1,5 +1,6 @@
 import SwiftUI
 import PhotosUI
+import MapKit
 
 struct CreateTripView: View {
     let tripService: TripService
@@ -23,9 +24,11 @@ struct CreateTripView: View {
     private let initialBannerURL:         String?
 
     // Destination search
-    @State private var destService     = DestinationService()
-    @State private var searchQuery     = ""
-    @State private var showDestPicker  = false
+    @State private var destService        = DestinationService()
+    @State private var searchQuery        = ""
+    @State private var showDestPicker     = false
+    @State private var selectedLatitude:  Double?
+    @State private var selectedLongitude: Double?
 
     init(tripService: TripService, initialDestination: DestinationDTO? = nil) {
         self.tripService    = tripService
@@ -230,14 +233,18 @@ struct CreateTripView: View {
                 DestinationPickerSheet(
                     service: destService,
                     onSelect: { dto in
-                        destinationName = "\(dto.name), \(dto.country)"
-                        selectedDestId  = dto.id
-                        showDestPicker  = false
+                        destinationName   = "\(dto.name), \(dto.country)"
+                        selectedDestId    = dto.id
+                        selectedLatitude  = dto.latitude
+                        selectedLongitude = dto.longitude
+                        showDestPicker    = false
                     },
-                    onManual: { name in
-                        destinationName = name
-                        selectedDestId  = nil
-                        showDestPicker  = false
+                    onCustomPlace: { name, lat, lng in
+                        destinationName   = name
+                        selectedDestId    = nil
+                        selectedLatitude  = lat
+                        selectedLongitude = lng
+                        showDestPicker    = false
                     }
                 )
             }
@@ -271,7 +278,9 @@ struct CreateTripView: View {
                     startDate:       startDate,
                     endDate:         endDate,
                     totalBudget:     Double(budget) ?? 0,
-                    currency:        currency
+                    currency:        currency,
+                    latitude:        selectedLatitude,
+                    longitude:       selectedLongitude
                 )
                 // Upload banner if one was picked
                 if let jpeg = bannerImage?.jpegData(compressionQuality: 0.85) {
@@ -313,27 +322,30 @@ struct DatePickerRow: View {
 
 private struct DestinationPickerSheet: View {
     let service: DestinationService
-    let onSelect: (DestinationDTO) -> Void
-    let onManual: (String) -> Void
+    let onSelect:      (DestinationDTO) -> Void
+    let onCustomPlace: (_ name: String, _ latitude: Double?, _ longitude: Double?) -> Void
 
     @State private var query       = ""
-    @State private var manualEntry = ""
+    @State private var mapResults: [MKMapItem] = []
     @State private var searchTask: Task<Void, Never>?
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Search bar
+                // ── Search bar ─────────────────────────────────────────
                 HStack(spacing: AppSpacing.sm) {
                     Image(systemName: "magnifyingglass").foregroundStyle(.secondary)
-                    TextField("Search destinations…", text: $query)
+                    TextField("Search any city or place…", text: $query)
                         .autocorrectionDisabled()
                         .onChange(of: query) { _, new in
                             searchTask?.cancel()
                             searchTask = Task {
                                 try? await Task.sleep(for: .milliseconds(350))
                                 guard !Task.isCancelled else { return }
+                                // Search Voyager DB
                                 await service.search(query: new)
+                                // Search MapKit for real-world places
+                                await searchMapKit(query: new)
                             }
                         }
                 }
@@ -342,61 +354,147 @@ private struct DestinationPickerSheet: View {
                 .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
                 .padding(AppSpacing.md)
 
-                // Manual entry
-                if !query.isEmpty && service.destinations.isEmpty {
-                    VStack(spacing: AppSpacing.sm) {
-                        Text("Not found in our list? Enter manually:")
-                            .font(AppFont.bodySmall).foregroundStyle(.secondary)
-                        HStack(spacing: AppSpacing.sm) {
-                            TextField("e.g. Maldives", text: $manualEntry)
-                                .font(AppFont.body)
-                                .padding(AppSpacing.md)
-                                .background(Color(UIColor.secondarySystemGroupedBackground))
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.md))
-                            Button("Use") {
-                                if !manualEntry.isEmpty { onManual(manualEntry) }
-                            }
-                            .font(AppFont.body).fontWeight(.semibold)
-                            .foregroundStyle(Color(hex: "#1A6B6A"))
-                        }
-                    }
-                    .padding(.horizontal, AppSpacing.md)
-                }
-
-                // Results list
-                List(service.destinations) { dest in
-                    Button {
-                        onSelect(dest)
-                    } label: {
-                        HStack(spacing: AppSpacing.md) {
-                            if let url = dest.imageUrls.first.flatMap(URL.init) {
-                                AsyncImage(url: url) { p in
-                                    if case .success(let img) = p { img.resizable().scaledToFill() }
-                                    else { Color(hex: "#2A9D8F") }
+                // ── Results ────────────────────────────────────────────
+                List {
+                    // Voyager curated destinations
+                    if !service.destinations.isEmpty {
+                        Section {
+                            ForEach(service.destinations) { dest in
+                                Button { onSelect(dest) } label: {
+                                    HStack(spacing: AppSpacing.md) {
+                                        if let url = dest.imageUrls.first.flatMap(URL.init) {
+                                            AsyncImage(url: url) { p in
+                                                if case .success(let img) = p { img.resizable().scaledToFill() }
+                                                else { Color(hex: "#2A9D8F") }
+                                            }
+                                            .frame(width: 44, height: 44)
+                                            .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
+                                        } else {
+                                            RoundedRectangle(cornerRadius: AppRadius.sm)
+                                                .fill(Color(hex: "#2A9D8F"))
+                                                .frame(width: 44, height: 44)
+                                        }
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(dest.name).font(AppFont.h4)
+                                            Text(dest.country).font(AppFont.bodySmall).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
                                 }
-                                .frame(width: 44, height: 44)
-                                .clipShape(RoundedRectangle(cornerRadius: AppRadius.sm))
-                            } else {
-                                RoundedRectangle(cornerRadius: AppRadius.sm)
-                                    .fill(Color(hex: "#2A9D8F"))
-                                    .frame(width: 44, height: 44)
+                                .buttonStyle(.plain)
                             }
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(dest.name).font(AppFont.h4)
-                                Text(dest.country).font(AppFont.bodySmall).foregroundStyle(.secondary)
-                            }
-                            Spacer()
+                        } header: {
+                            Label("In Voyager", systemImage: "star.fill")
+                                .font(AppFont.caption).foregroundStyle(Color(hex: "#1A6B6A"))
+                                .textCase(nil)
                         }
-                        .contentShape(Rectangle())
                     }
-                    .buttonStyle(.plain)
+
+                    // MapKit real-world places
+                    if !mapResults.isEmpty {
+                        Section {
+                            ForEach(mapResults, id: \.self) { item in
+                                Button {
+                                    let coord = item.placemark.coordinate
+                                    let name  = mapKitPlaceName(for: item)
+                                    onCustomPlace(name, coord.latitude, coord.longitude)
+                                } label: {
+                                    HStack(spacing: AppSpacing.md) {
+                                        ZStack {
+                                            RoundedRectangle(cornerRadius: AppRadius.sm)
+                                                .fill(Color(hex: "#1A6B6A").opacity(0.1))
+                                                .frame(width: 44, height: 44)
+                                            Image(systemName: "mappin.circle.fill")
+                                                .font(.system(size: 22))
+                                                .foregroundStyle(Color(hex: "#1A6B6A"))
+                                        }
+                                        VStack(alignment: .leading, spacing: 2) {
+                                            Text(item.name ?? item.placemark.locality ?? "Unknown")
+                                                .font(AppFont.h4)
+                                            Text(mapKitSubtitle(for: item))
+                                                .font(AppFont.bodySmall).foregroundStyle(.secondary)
+                                        }
+                                        Spacer()
+                                    }
+                                    .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        } header: {
+                            Label("All Places", systemImage: "globe")
+                                .font(AppFont.caption).foregroundStyle(.secondary)
+                                .textCase(nil)
+                        }
+                    }
+
+                    // Fallback: no results at all
+                    if service.destinations.isEmpty && mapResults.isEmpty && !query.isEmpty {
+                        ContentUnavailableView(
+                            "No places found",
+                            systemImage: "magnifyingglass",
+                            description: Text("Try a different city or country name")
+                        )
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                    }
                 }
-                .listStyle(.plain)
+                .listStyle(.insetGrouped)
                 .task { await service.fetchAll() }
             }
             .background(Color(UIColor.systemGroupedBackground))
             .navigationTitle("Choose Destination")
             .navigationBarTitleDisplayMode(.inline)
         }
+    }
+
+    // MARK: - MapKit search
+
+    private func searchMapKit(query: String) async {
+        guard !query.trimmingCharacters(in: .whitespaces).isEmpty else {
+            await MainActor.run { mapResults = [] }
+            return
+        }
+        let request = MKLocalSearch.Request()
+        request.naturalLanguageQuery = query
+        request.resultTypes = [.address, .pointOfInterest]
+        guard let response = try? await MKLocalSearch(request: request).start() else {
+            await MainActor.run { mapResults = [] }
+            return
+        }
+        // Deduplicate by coordinate (MapKit can return near-duplicates)
+        let unique = response.mapItems.reduce(into: [MKMapItem]()) { acc, item in
+            let coord = item.placemark.coordinate
+            let isDup = acc.contains {
+                abs($0.placemark.coordinate.latitude  - coord.latitude)  < 0.01 &&
+                abs($0.placemark.coordinate.longitude - coord.longitude) < 0.01
+            }
+            if !isDup { acc.append(item) }
+        }
+        await MainActor.run { mapResults = Array(unique.prefix(6)) }
+    }
+
+    // MARK: - Display helpers
+
+    private func mapKitPlaceName(for item: MKMapItem) -> String {
+        let parts = [
+            item.name,
+            item.placemark.locality,
+            item.placemark.country
+        ].compactMap { $0 }.filter { !$0.isEmpty }
+        // Avoid repeating the same word (e.g. "Paris, Paris, France")
+        var seen = Set<String>()
+        let deduped = parts.filter { seen.insert($0).inserted }
+        return deduped.joined(separator: ", ")
+    }
+
+    private func mapKitSubtitle(for item: MKMapItem) -> String {
+        let parts = [
+            item.placemark.locality,
+            item.placemark.administrativeArea,
+            item.placemark.country
+        ].compactMap { $0 }.filter { !$0.isEmpty }
+        var seen = Set<String>()
+        return parts.filter { seen.insert($0).inserted }.joined(separator: ", ")
     }
 }
