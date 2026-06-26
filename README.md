@@ -40,7 +40,6 @@ Voyager is a portfolio-grade iOS travel app showcasing advanced SwiftUI architec
 - Push notifications for: flight status changes, check-in reminders, trip day reminders
 - In-app notification centre with read/unread state
 - Real-time weather alerts for active trips
-- Price drop alerts for saved destinations
 - Countdown widget for upcoming trips
 
 ### 🔐 Auth & User Profile
@@ -199,7 +198,7 @@ Things identified as missing or worth adding — pick up from here next session.
 
 ### Finish existing stubs
 - **Maps screen** — dedicated tab showing all trip destinations as pins, day-by-day route drawn as polylines, tap pin to open destination detail.
-- **Notifications** — trip countdown timer, flight check-in reminder (24h before), day-of activity alerts, price-drop alerts for wishlisted destinations.
+- **Notifications** — trip countdown timer, flight check-in reminder (24h before), day-of activity alerts.
 - **Photo journal** — dedicated gallery view per trip (not just per activity), auto-prompt to add photos after a trip day ends, grid + timeline views.
 - **Reviews** — let users rate and write reviews for destinations/hotels/activities they've visited; show community tips on destination detail.
 - **Profile settings pages** — Notifications, Privacy, Language, Currency, Appearance, Help/Support all currently tap to nothing; need real content.

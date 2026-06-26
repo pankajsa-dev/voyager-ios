@@ -11,6 +11,7 @@ final class HomeViewModel {
 
     private let tripService        = TripService()
     private let destinationService = DestinationService()
+    private let bookingService     = BookingService()
 
     var tripCount: Int {
         allTrips.filter { $0.status != "cancelled" }.count
@@ -20,11 +21,16 @@ final class HomeViewModel {
         Set(allTrips.compactMap { $0.destinationName.isEmpty ? nil : $0.destinationName }).count
     }
 
+    var bookingCount: Int {
+        bookingService.bookings.count
+    }
+
     func load() async {
         await MainActor.run { isLoading = true }
         await withTaskGroup(of: Void.self) { group in
             group.addTask { await self.tripService.fetchAll() }
             group.addTask { await self.destinationService.fetchAll() }
+            group.addTask { await self.bookingService.fetchAll() }
         }
         let fmt = DateFormatter(); fmt.dateFormat = "yyyy-MM-dd"
         let now = Date()
@@ -34,6 +40,19 @@ final class HomeViewModel {
                 return d >= Calendar.current.startOfDay(for: now)
             }
             .sorted { $0.startDate < $1.startDate }
+        // Persist next trip for the home-screen widget
+        let widgetTrip = upcoming.first.map {
+            WidgetTripEntry(
+                tripId:          $0.id,
+                title:           $0.title,
+                destinationName: $0.destinationName,
+                startDate:       $0.startDate,
+                endDate:         $0.endDate,
+                coverImageUrl:   $0.coverImageUrl
+            )
+        }
+        WidgetSharedData.saveNextTrip(widgetTrip)
+
         await MainActor.run {
             allTrips             = tripService.trips
             upcomingTrip         = upcoming.first
@@ -196,7 +215,7 @@ struct HomeView: View {
         HStack(spacing: AppSpacing.sm) {
             StatPill(value: "\(vm.tripCount)", label: "Trips", icon: "airplane")
             StatPill(value: "\(vm.countriesCount)", label: "Places", icon: "mappin.circle")
-            StatPill(value: "0", label: "Bookings", icon: "ticket")
+            StatPill(value: "\(vm.bookingCount)", label: "Bookings", icon: "ticket")
         }
     }
 
